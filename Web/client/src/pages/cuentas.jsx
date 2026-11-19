@@ -1,4 +1,3 @@
-
 // Al abrirse pide las cuentas con listarCuentas() (sp_ListarCuentasUsuario)
 // y las muestra en una lista. Cada cuenta tiene enlaces a sus beneficiarios y
 // a sus estados de cuenta.
@@ -21,6 +20,8 @@ export default function Cuentas({ usuario, onLogout }) {
   const navegar = useNavigate();
 
   // useEffect con [] = se ejecuta UNA vez, cuando la pantalla aparece.
+  // onLogout y navegar no van en la lista: onLogout es una funcion nueva en
+  // cada render de App y haria pedir las cuentas otra vez.
   useEffect(() => {
     async function cargar() {
       const respuesta = await listarCuentas();
@@ -37,6 +38,7 @@ export default function Cuentas({ usuario, onLogout }) {
       setCargando(false);
     }
     cargar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function salir() {

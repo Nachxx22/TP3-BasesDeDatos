@@ -151,11 +151,15 @@ BEGIN
 
     END TRY
     BEGIN CATCH
-
-        EXEC dbo.sp_RegistrarError;
+        INSERT INTO dbo.ErrorBD (
+            NumeroError, Severidad, Estado, Procedimiento, Linea, Mensaje
+        )
+        VALUES (
+            ERROR_NUMBER(), ERROR_SEVERITY(), ERROR_STATE(),
+            ERROR_PROCEDURE(), ERROR_LINE(), ERROR_MESSAGE()
+        );
 
         SET @outResultCode = 50000;
-
     END CATCH;
 END;
 GO

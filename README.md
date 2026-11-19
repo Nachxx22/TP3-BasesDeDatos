@@ -21,9 +21,9 @@ La base de datos es la misma de la TP2 (`CuentaAhorrosTP2`), ampliada con el mod
 
 | | Versión usada |
 |---|---|
-| SQL Server | [2022] |
-| SQL Server Management Studio (SSMS) | [2022] |
-| Node.js | [26.13.0] |
+| SQL Server | 2022 |
+| SQL Server Management Studio (SSMS) | 2022 |
+| Node.js | 26.13.0 |
 
 ## 1. Instalar la base de datos
 
@@ -34,25 +34,24 @@ Abrir cada script en SSMS y ejecutarlo completo, **en este orden**. Todos usan `
 | 1 | `Sql/TP3/00_CreaBasesTablas.sql` | Crea la base `CuentaAhorrosTP2` y las tablas base |
 | 2 | `Sql/TP3/01_ModeloFisicoFinanciero.sql` | Amplía el modelo: `TipoMovimiento`, `Movimiento` y columnas nuevas de `EstadoCuenta` |
 | 3 | `Sql/TP3/02_ErrorBD.sql` | Tabla `dbo.ErrorBD`, donde se guardan los errores de SQL |
-| 4 | `Sql/TP3/SPs/Sp_RegistrarError.sql` | `sp_RegistrarError` |
-| 5 | `Sql/TP3/SPs/Sp_RegistrarBitacora.sql` | `sp_RegistrarBitacora` |
-| 6 | `Sql/TP3/SPs/Sp_Sesion.sql` | Inicio de sesión, cuentas del usuario y cierre de sesión |
-| 7 | `Sql/TP3/SPs/Sp_Beneficiarios.sql` | Beneficiarios |
-| 8 | `Sql/TP3/SPs/Sp_ConsultarCatalogos.sql` | Listas de parentescos y tipos de documento |
-| 9 | `Sql/TP3/12_ControlSimulacion.sql` | Tablas `CorridaSimulacion` y `ControlSimulacion` (control y reanudación) |
-| 10 | `Sql/TP3/13_Comprobantes.sql` | Tabla `Comprobante` y su vínculo con `Movimiento` |
-| 11 | `Sql/TP3/SPs/Sp_CargarCatalogos.sql` | `sp_CargarCatalogos` |
-| 12 | `Sql/TP3/CargarCatalogos.sql` | Carga los catálogos (XML incluido en el script) y prueba una segunda carga, un XML nulo y uno incompleto |
-| 13 | `Sql/TP3/Crear_Admin.sql` | Usuario administrador (el XML no trae uno) |
-| 14 | `Sql/TP3/Triggers/TriggerAperturaEstadoCuenta.sql` | Trigger que abre el primer estado de cuenta |
-| 15 | `Sql/TP3/SPs/Sp_CargarAltasDia.sql` | Altas de un día |
-| 16 | `Sql/TP3/SPs/Sp_AplicarMovimiento.sql` | Aplicación de un movimiento |
-| 17 | `Sql/TP3/SPs/Sp_CerrarYAbrirEstadoCuenta.sql` | Cierre y apertura de estado de cuenta |
-| 18 | `Sql/TP3/SPs/Sp_ConsultarEstadosCuenta.sql` | Consulta de estados de cuenta |
-| 19 | `Sql/TP3/SPs/Sp_ConsultarMovimientosEstadoCuenta.sql` | Consulta de movimientos de un estado |
-| 20 | `Sql/TP3/SPs/Sp_ConsultarControlSimulacion.sql` | Datos de la página de control |
-| 21 | `Sql/TP3/SPs/Sp_ConsultarComprobantes.sql` | Lista de comprobantes |
-| 22 | `Sql/TP3/SPs/Sp_RegistrarEnvioComprobante.sql` | Registro del envío de un comprobante |
+| 4 | `Sql/TP3/SPs/Sp_RegistrarBitacora.sql` | `sp_RegistrarBitacora` |
+| 5 | `Sql/TP3/SPs/Sp_Sesion.sql` | Inicio de sesión, cuentas del usuario y cierre de sesión |
+| 6 | `Sql/TP3/SPs/Sp_Beneficiarios.sql` | Beneficiarios |
+| 7 | `Sql/TP3/SPs/Sp_ConsultarCatalogos.sql` | Listas de parentescos y tipos de documento |
+| 8 | `Sql/TP3/12_ControlSimulacion.sql` | Tablas `CorridaSimulacion` y `ControlSimulacion` (control y reanudación) |
+| 9 | `Sql/TP3/13_Comprobantes.sql` | Tabla `Comprobante` y su vínculo con `Movimiento` |
+| 10 | `Sql/TP3/SPs/Sp_CargarCatalogos.sql` | `sp_CargarCatalogos` |
+| 11 | `Sql/TP3/CargarCatalogos.sql` | Carga los catálogos (XML incluido en el script) y prueba una segunda carga, un XML nulo y uno incompleto |
+| 12 | `Sql/TP3/Crear_Admin.sql` | Usuario administrador (el XML no trae uno) |
+| 13 | `Sql/TP3/Triggers/TriggerAperturaEstadoCuenta.sql` | Trigger que abre el primer estado de cuenta |
+| 14 | `Sql/TP3/SPs/Sp_CargarAltasDia.sql` | Altas de un día |
+| 15 | `Sql/TP3/SPs/Sp_AplicarMovimiento.sql` | Aplicación de un movimiento |
+| 16 | `Sql/TP3/SPs/Sp_CerrarYAbrirEstadoCuenta.sql` | Cierre y apertura de estado de cuenta |
+| 17 | `Sql/TP3/SPs/Sp_ConsultarEstadosCuenta.sql` | Consulta de estados de cuenta |
+| 18 | `Sql/TP3/SPs/Sp_ConsultarMovimientosEstadoCuenta.sql` | Consulta de movimientos de un estado |
+| 19 | `Sql/TP3/SPs/Sp_ConsultarControlSimulacion.sql` | Datos de la página de control |
+| 20 | `Sql/TP3/SPs/Sp_ConsultarComprobantes.sql` | Lista de comprobantes |
+| 21 | `Sql/TP3/SPs/Sp_RegistrarEnvioComprobante.sql` | Registro del envío de un comprobante |
 
 ## 2. Correr la simulación
 

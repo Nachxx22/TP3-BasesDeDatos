@@ -1,9 +1,33 @@
-
 USE CuentaAhorrosTP2;
 GO
 
---consulta todos los estados de cuenta de una cuenta (permisos quedaron igual y bitacora)
+/*
+   sp_ConsultarEstadosCuenta
+   Devuelve los estados de cuenta de una cuenta, del mas reciente al mas
+   antiguo, con sus fechas, saldos (inicial, final y minimo), intereses,
+   contadores (ATM, cajero humano y SINPE) y la moneda de la cuenta.
+   Registra la consulta en la bitacora (tipo de operacion 7).
 
+   Permisos: un cliente solo puede ver las cuentas que aparecen en
+   UsuarioPuedeVer; el administrador puede ver cualquiera.
+
+   Entrada : @inIdUsuario      usuario que consulta
+             @inNumeroCuenta   numero de la cuenta
+   Salida  : @outResultCode
+               0      = exito
+               50002  = parametros invalidos, usuario o cuenta inexistente
+                        o usuario sin acceso a la cuenta
+               50000  = error inesperado (queda en dbo.ErrorBD)
+               otro   = codigo de error de sp_RegistrarBitacora
+
+   Ejemplo de ejecucion:
+     DECLARE @r INT;
+     EXEC dbo.sp_ConsultarEstadosCuenta
+         @inIdUsuario = 1,
+         @inNumeroCuenta = '11000001',
+         @outResultCode = @r OUTPUT;
+     SELECT @r AS CodigoResultado;
+*/
 
 CREATE OR ALTER PROCEDURE dbo.sp_ConsultarEstadosCuenta
     @inIdUsuario INT,
@@ -62,8 +86,7 @@ BEGIN
             RETURN;
         END;
 
-        -- Registrar la consulta en bitacora (7), no hace otra transaccion
-
+        -- Registra la consulta en la bitacora (tipo 7). No abre transaccion.
         EXEC dbo.sp_RegistrarBitacora
             @inIdUsuario = @inIdUsuario,
             @inIdTipoOperacion = 7,
@@ -79,8 +102,7 @@ BEGIN
             RETURN;
         END;
 
-        -- periodos del mas reciente al mas antiguo (columnas igual)
-
+        -- Estados del mas reciente al mas antiguo.
         SELECT
             E.Id AS IdEstadoCuenta,
             E.FechaInicio,
@@ -95,22 +117,22 @@ BEGIN
             E.CantSinpeEntrantes,
             E.CantSinpeSalientes,
 
-            -- contadores neuvos
+            -- Contadores de la TP3
             E.CantOperacionesATM,
             E.CantRetirosATM,
             E.CantOperacionesHumano,
             E.CantRetirosHumano,
 
-                       -- Total de operaciones SINPE 
+            -- Total de operaciones SINPE
             E.CantSinpeEntrantes + E.CantSinpeSalientes
                 AS CantOperacionesSinpe,
 
-            -- moneda de la cuenta
+            -- Moneda de la cuenta
             TM.Simbolo AS SimboloMoneda,
             TM.Nombre  AS NombreMoneda
 
         FROM dbo.EstadoCuenta AS E
-        --para la moneda de la cuenta
+        -- Cuenta y tipo de cuenta para llegar a la moneda
         INNER JOIN dbo.Cuenta AS C ON C.Id = E.IdCuenta
         INNER JOIN dbo.TipoCuentaAhorro AS TC ON TC.Id = C.IdTipoCuentaAhorro
         INNER JOIN dbo.TipoMoneda AS TM ON TM.Id = TC.IdTipoMoneda
@@ -121,11 +143,15 @@ BEGIN
 
     END TRY
     BEGIN CATCH
-
-        EXEC dbo.sp_RegistrarError;
+        INSERT INTO dbo.ErrorBD (
+            NumeroError, Severidad, Estado, Procedimiento, Linea, Mensaje
+        )
+        VALUES (
+            ERROR_NUMBER(), ERROR_SEVERITY(), ERROR_STATE(),
+            ERROR_PROCEDURE(), ERROR_LINE(), ERROR_MESSAGE()
+        );
 
         SET @outResultCode = 50000;
-
     END CATCH;
 END;
 GO

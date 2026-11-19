@@ -2,20 +2,37 @@ USE CuentaAhorrosTP2;
 GO
 
 /*
-Ejemplo de ejecucion:
-
-DECLARE @outResultCode INT;
-
-EXEC dbo.sp_ListarBeneficiarios
-    @inIdUsuario = 1,
-    @inNumeroCuenta = '11000001',
-    @outResultCode = @outResultCode OUTPUT;
-
-SELECT @outResultCode AS CodigoResultado;
+   Sp_Beneficiarios.sql
+   Procedimientos de la pagina web para los beneficiarios de una cuenta:
+     - sp_ListarBeneficiarios
+     - sp_AgregarBeneficiario
+     - sp_ActualizarBeneficiario
+     - sp_EliminarBeneficiario
+   En todos, el administrador puede trabajar con cualquier cuenta y un
+   cliente solo con las cuentas que aparecen en UsuarioPuedeVer.
 */
 
---------------------------------------------------------------------------------------------
---Crea Listar beneficiarios
+/*
+   sp_ListarBeneficiarios
+   Devuelve dos resultados: los beneficiarios activos de la cuenta y el
+   resumen con la suma de sus porcentajes y la cantidad de beneficiarios.
+
+   Entrada : @inIdUsuario, @inNumeroCuenta
+   Salida  : @outResultCode
+               0      = exito
+               50007  = parametros incompletos
+               50002  = cuenta inexistente o usuario sin acceso a la cuenta
+               50000  = error inesperado (queda en dbo.ErrorBD)
+
+   Ejemplo de ejecucion:
+     DECLARE @outResultCode INT;
+     EXEC dbo.sp_ListarBeneficiarios
+         @inIdUsuario = 1,
+         @inNumeroCuenta = '11000001',
+         @outResultCode = @outResultCode OUTPUT;
+     SELECT @outResultCode AS CodigoResultado;
+*/
+
 CREATE OR ALTER PROCEDURE dbo.sp_ListarBeneficiarios
     @inIdUsuario INT,
     @inNumeroCuenta VARCHAR(16),
@@ -90,13 +107,59 @@ BEGIN
 
     END TRY
     BEGIN CATCH
+        INSERT INTO dbo.ErrorBD (
+            NumeroError, Severidad, Estado, Procedimiento, Linea, Mensaje
+        )
+        VALUES (
+            ERROR_NUMBER(), ERROR_SEVERITY(), ERROR_STATE(),
+            ERROR_PROCEDURE(), ERROR_LINE(), ERROR_MESSAGE()
+        );
+
         SET @outResultCode = 50000;
     END CATCH;
 END;
 GO
 
---------------------------------------------------------------------------------------------------
---Crea agregar beneficiario
+/*
+   sp_AgregarBeneficiario
+   Agrega un beneficiario activo a la cuenta. Si la persona no existe, la
+   crea con sus dos telefonos. Una cuenta tiene como maximo 3 beneficiarios
+   activos y la suma de sus porcentajes no puede pasar de 100. El alta se
+   registra en la bitacora (tipo 3) dentro de la misma transaccion.
+
+   Salida  : @outResultCode
+               0      = exito
+               50007  = datos incompletos o con formato invalido, o el tipo
+                        de documento no coincide con el de la persona
+               50004  = porcentaje fuera de 0 a 100
+               50002  = cuenta inexistente o usuario sin acceso a la cuenta
+               50008  = tipo de documento o parentesco inexistente
+               50005  = la persona ya es beneficiaria activa de la cuenta
+               50003  = la cuenta ya tiene 3 beneficiarios activos
+               50009  = la suma de porcentajes pasaria de 100
+               50000  = error inesperado o fallo de la bitacora
+                        (el error de SQL queda en dbo.ErrorBD)
+
+   Ejemplo de ejecucion:
+     DECLARE @outResultCode INT;
+     EXEC dbo.sp_AgregarBeneficiario
+         @inIdUsuario = 1,
+         @inNumeroCuenta = '11000001',
+         @inIdTipoDocuIdentidad = 1,
+         @inValorDocumentoIdentidad = '112345678',
+         @inNombre = 'Nombre de ejemplo',
+         @inFechaNacimiento = '1990-05-10',
+         @inEmail = 'ejemplo@correo.com',
+         @inTelefono1 = '88887777',
+         @inTelefono2 = '22223333',
+         @inIdParentezco = 1,
+         @inPorcentaje = 30,
+         @outResultCode = @outResultCode OUTPUT;
+     SELECT @outResultCode AS CodigoResultado;
+
+   No ejecutar este ejemplo sobre datos reales.
+*/
+
 CREATE OR ALTER PROCEDURE dbo.sp_AgregarBeneficiario
     @inIdUsuario INT,
     @inNumeroCuenta VARCHAR(16),
@@ -162,7 +225,7 @@ BEGIN
         RETURN;
     END;
 
-    -- ver  acceso a la cuenta
+    -- ver acceso a la cuenta
     -- (el administrador puede acceder los datos de cualquier cuenta)
     SELECT @idCuenta = C.Id
     FROM dbo.Cuenta C
@@ -247,7 +310,7 @@ BEGIN
         RETURN;
     END;
 
-    -- No permitite una suma superior a 100
+    -- No permite una suma superior a 100
     IF (@sumaPorcentajes + @inPorcentaje) > 100
     BEGIN
         SET @outResultCode = 50009;
@@ -347,27 +410,49 @@ BEGIN
             ROLLBACK TRANSACTION;
         END;
 
+        INSERT INTO dbo.ErrorBD (
+            NumeroError, Severidad, Estado, Procedimiento, Linea, Mensaje
+        )
+        VALUES (
+            ERROR_NUMBER(), ERROR_SEVERITY(), ERROR_STATE(),
+            ERROR_PROCEDURE(), ERROR_LINE(), ERROR_MESSAGE()
+        );
+
         SET @outResultCode = 50000;
     END CATCH;
 END;
 GO
 
-----------------------------------------------------------------------------------------------
 /*
-Ejemplo de ejecucion:
+   sp_ActualizarBeneficiario
+   Cambia el nombre, el parentesco y el porcentaje de un beneficiario
+   activo. Si no cambio nada, no escribe nada y devuelve 0. El cambio se
+   registra en la bitacora dentro de la misma transaccion: tipo 6 si solo
+   cambio el porcentaje y tipo 4 en los demas casos.
 
-DECLARE @outResultCode INT;
+   Salida  : @outResultCode
+               0      = exito (o no habia nada que cambiar)
+               50007  = datos incompletos
+               50004  = porcentaje fuera de 0 a 100
+               50006  = beneficiario inexistente o inactivo
+               50002  = usuario sin acceso a la cuenta
+               50008  = parentesco inexistente
+               50009  = la suma de porcentajes pasaria de 100
+               50000  = error inesperado o fallo de la bitacora
+                        (el error de SQL queda en dbo.ErrorBD)
 
-EXEC dbo.sp_ActualizarBeneficiario
-    @inIdUsuario = 1,
-    @inIdBeneficiario = 1,
-    @inNombre = 'Nombre de ejemplo',
-    @inIdParentezco = 7,
-    @inPorcentaje = 30,
-    @outResultCode = @outResultCode OUTPUT;
+   Ejemplo de ejecucion:
+     DECLARE @outResultCode INT;
+     EXEC dbo.sp_ActualizarBeneficiario
+         @inIdUsuario = 1,
+         @inIdBeneficiario = 1,
+         @inNombre = 'Nombre de ejemplo',
+         @inIdParentezco = 7,
+         @inPorcentaje = 30,
+         @outResultCode = @outResultCode OUTPUT;
+     SELECT @outResultCode AS CodigoResultado;
 
-SELECT @outResultCode AS CodigoResultado;
-
+   No ejecutar este ejemplo sobre datos reales.
 */
 
 CREATE OR ALTER PROCEDURE dbo.sp_ActualizarBeneficiario
@@ -563,25 +648,42 @@ BEGIN
             ROLLBACK TRANSACTION;
         END;
 
+        INSERT INTO dbo.ErrorBD (
+            NumeroError, Severidad, Estado, Procedimiento, Linea, Mensaje
+        )
+        VALUES (
+            ERROR_NUMBER(), ERROR_SEVERITY(), ERROR_STATE(),
+            ERROR_PROCEDURE(), ERROR_LINE(), ERROR_MESSAGE()
+        );
+
         SET @outResultCode = 50000;
     END CATCH;
 END;
 GO
 
------------------------------------------------------------------------------------------------------------
 /*
-Ejemplo de ejecucion:
+   sp_EliminarBeneficiario
+   Baja logica de un beneficiario activo (FlagActivo = 0 y fecha de
+   desactivacion). La baja se registra en la bitacora (tipo 5) dentro de la
+   misma transaccion.
 
-DECLARE @outResultCode INT;
+   Salida  : @outResultCode
+               0      = exito
+               50007  = parametros incompletos
+               50006  = beneficiario inexistente o inactivo
+               50002  = usuario sin acceso a la cuenta
+               50000  = error inesperado o fallo de la bitacora
+                        (el error de SQL queda en dbo.ErrorBD)
 
-EXEC dbo.sp_EliminarBeneficiario
-    @inIdUsuario = 1,
-    @inIdBeneficiario = 13,
-    @outResultCode = @outResultCode OUTPUT;
+   Ejemplo de ejecucion:
+     DECLARE @outResultCode INT;
+     EXEC dbo.sp_EliminarBeneficiario
+         @inIdUsuario = 1,
+         @inIdBeneficiario = 13,
+         @outResultCode = @outResultCode OUTPUT;
+     SELECT @outResultCode AS CodigoResultado;
 
-SELECT @outResultCode AS CodigoResultado;
-
-No ejecutar este ejemplo sobre datos reales.
+   No ejecutar este ejemplo sobre datos reales.
 */
 
 CREATE OR ALTER PROCEDURE dbo.sp_EliminarBeneficiario
@@ -717,6 +819,14 @@ BEGIN
         BEGIN
             ROLLBACK TRANSACTION;
         END;
+
+        INSERT INTO dbo.ErrorBD (
+            NumeroError, Severidad, Estado, Procedimiento, Linea, Mensaje
+        )
+        VALUES (
+            ERROR_NUMBER(), ERROR_SEVERITY(), ERROR_STATE(),
+            ERROR_PROCEDURE(), ERROR_LINE(), ERROR_MESSAGE()
+        );
 
         SET @outResultCode = 50000;
     END CATCH;

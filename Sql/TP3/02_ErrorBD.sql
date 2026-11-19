@@ -3,14 +3,14 @@ GO
 
 /*
    02_ErrorBD
-   Crea la tabla dbo.ErrorBD, donde se guardan los errores de SQL que
-   capturan los procedimientos almacenados en su bloque CATCH (de forma
-   directa o mediante sp_RegistrarError).
+   Crea la tabla dbo.ErrorBD, donde los procedimientos almacenados guardan
+   los errores de SQL que capturan en su bloque CATCH (cada uno hace su
+   propio INSERT).
 
    Solo la crea si no existe, asi que se puede ejecutar varias veces.
 
    Orden de instalacion: despues de 01_ModeloFisicoFinanciero.sql y antes
-   de SPs/Sp_RegistrarError.sql.
+   de los procedimientos almacenados.
 */
 
 IF OBJECT_ID(N'dbo.ErrorBD', N'U') IS NULL

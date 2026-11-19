@@ -1,6 +1,11 @@
-/* 
-   TP2 - Base de Datos 1 - Cuenta de Ahorros
-   Script 01: creación de la base de datos y de las tablas
+/*
+   00_CreaBasesTablas
+   Crea la base de datos CuentaAhorrosTP2 y sus tablas base, que vienen de
+   la TP2: catalogos, Persona, Telefono, Cuenta, Beneficiario, EstadoCuenta,
+   Usuario, UsuarioPuedeVer y Bitacora. Despues, 01_ModeloFisicoFinanciero.sql
+   amplia este modelo para la TP3.
+
+   Se ejecuta una sola vez, sobre una base nueva.
 */
 
 IF DB_ID(N'CuentaAhorrosTP2') IS NULL
@@ -69,9 +74,8 @@ CREATE TABLE dbo.TipoOperacionBitacora (
 );
 GO
 
- 
---NO CATÁLOGOS (Id IDENTITY)
- --------------------------------------------------------------------------
+--NO CATALOGOS (Id IDENTITY)
+----------------------------------------------------------------------------
 
 CREATE TABLE dbo.Persona (
     Id                       INT IDENTITY(1,1) NOT NULL,

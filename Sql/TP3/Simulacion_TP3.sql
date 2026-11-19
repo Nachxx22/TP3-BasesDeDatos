@@ -39,7 +39,7 @@ DECLARE @resultadoPrueba        INT = 3;
 DECLARE @codigoMovYaRegistrado  INT = 50203;  -- de sp_AplicarMovimiento
 DECLARE @codigoPeriodoCerrado   INT = 50303;  -- de sp_CerrarYAbrirEstadoCuenta
 
--- SOLO PARA LA PRUEBA DE REANUDACION (Pruebas_ReanudacionSimulacion.sql):
+-- SOLO PARA LA PRUEBA DE REANUDACION (Pruebas/Prueba_ReanudarSimulacion.sql):
 -- detienen la corrida a proposito, como si fallara. En una corrida normal
 -- las tres quedan en NULL.
 DECLARE @pruebaFechaDetener           DATE = Null;  -- ej. '2026-04-01'

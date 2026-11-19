@@ -53,9 +53,9 @@ CREATE OR ALTER PROCEDURE dbo.sp_AplicarMovimiento
     @outIdMovimiento INT OUTPUT
 AS
 BEGIN
+    SET NOCOUNT ON;
 
-	SET NOCOUNT ON;
-	DECLARE @IdTipoMovimiento INT;
+    DECLARE @IdTipoMovimiento INT;
     DECLARE @Accion VARCHAR(7);
     DECLARE @IdCuenta INT;
     DECLARE @IdEstadoCuenta INT;
@@ -219,7 +219,6 @@ BEGIN
                 1;
         END;
 
-
          -- Calcula el saldo posterior al movimiento principal
         IF @Accion = 'Credito'
         BEGIN
@@ -235,7 +234,6 @@ BEGIN
             THROW 50206, 'Saldo insuficiente.', 1;
         END;
 
-
         -- En retiros SINPE se revisa lo enviado en el dia
         IF @IdTipoMovimiento = 9
         BEGIN
@@ -245,8 +243,6 @@ BEGIN
                     'Falta la configuracion SINPE del tipo de cuenta.',
                     1;
             END;
-
-
 
             SELECT
                 @TotalSinpeAnterior = ISNULL(SUM(M.Monto), 0)
@@ -263,16 +259,12 @@ BEGIN
             END;
         END;
 
-
-
         SET @SaldoFinal = @SaldoPrincipal - @MontoComision;
         IF @SaldoFinal < 0
         BEGIN
             THROW 50208,
                 'Saldo insuficiente para el movimiento y su comision.', 1;
         END;
-
-
 
         IF @MontoComision > 0
         BEGIN
@@ -287,8 +279,6 @@ BEGIN
                 THROW 50209, 'No existe el tipo Comision Sinpe.', 1;
             END;
         END;
-
-
 
         -- Comprobante, parte 2. Se completa el texto con el saldo que se
         -- acaba de calcular y se inserta ANTES del movimiento, porque es el
@@ -359,8 +349,6 @@ BEGIN
 
         SET @outIdMovimiento = SCOPE_IDENTITY();
 
-
-
         -- Registra la comision como segundo movimiento. No lleva
         -- comprobante propio (IdComprobante queda NULL): va en el del retiro.
         IF @MontoComision > 0
@@ -387,13 +375,10 @@ BEGIN
             );
         END;
 
-
         -- Actualiza el saldo de la cuenta
         UPDATE dbo.Cuenta
         SET Saldo = @SaldoFinal
         WHERE Id = @IdCuenta;
-
-
 
         -- Actualiza saldo y contadores del estado vigente
         UPDATE dbo.EstadoCuenta

@@ -1,7 +1,14 @@
 /*
    Prueba de sp_CargarAltasDia con el dia 2026-03-01 del XML real.
-   Esperado en la prueba 1: Persona 5, Telefono 10, Cuenta 2, EstadoCuenta 2,
-   Beneficiario 2, Usuario 2, UsuarioPuedeVer 2. Todo termina en ROLLBACK.
+   Se corre con la base recien instalada, ANTES de Simulacion_TP3.sql: en
+   ese momento solo existe el administrador (1 persona, 2 telefonos y
+   1 usuario de Crear_Admin.sql).
+   Esperado en la prueba 1 (el dia 2026-03-01 mas el administrador):
+   Persona 6, Telefono 12, Cuenta 2, EstadoCuenta 2, Beneficiario 2,
+   Usuario 3, UsuarioPuedeVer 2. Todo termina en ROLLBACK.
+   En la prueba 4, SQL Server muestra el mensaje 266 (conteo de
+   transacciones): es esperado, porque el SP deshace la transaccion de la
+   prueba al fallar.
    Requiere: catalogos cargados y dbo.ErrorBD creada.
 */
 USE CuentaAhorrosTP2;
@@ -60,6 +67,6 @@ EXEC dbo.sp_CargarAltasDia @inXml = @x, @inFecha = '2026-03-01', @outResultCode 
 EXEC dbo.sp_CargarAltasDia @inXml = @x, @inFecha = '2026-03-01', @outResultCode = @r OUTPUT;
 SELECT @r AS Codigo_Prueba4;
 IF (@@TRANCOUNT > 0) ROLLBACK TRANSACTION;
-SELECT (SELECT COUNT(*) FROM dbo.Persona) AS PersonasQuedan_esperado_0,
+SELECT (SELECT COUNT(*) FROM dbo.Persona) AS PersonasQuedan_esperado_1,
        (SELECT COUNT(*) FROM dbo.ErrorBD) - @errAntes AS FilasNuevasErrorBD_esperado_1;
 SELECT TOP (1) NumeroError, Procedimiento, Mensaje FROM dbo.ErrorBD ORDER BY Id DESC;

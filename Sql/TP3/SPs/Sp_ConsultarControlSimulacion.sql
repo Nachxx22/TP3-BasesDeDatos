@@ -102,11 +102,11 @@ BEGIN
             CS.IdCorridaSimulacion,
             CS.FlagAltasProcesadas,
             CS.CantMovimientosXml,
-            CS.UltimoMovimientoProcesado,
+            CS.CantMovimientosAplicados + CS.CantMovimientosRechazados
+                AS CantMovimientosProcesados,
             CS.CantMovimientosAplicados,
             CS.CantMovimientosRechazados,
-            CS.UltimaCuentaCerrada,
-            C.NumeroCuenta AS NumeroUltimaCuentaCerrada,
+            CS.UltimaCuentaProcesada,
             CS.CantCierres,
             CS.CantIntentos,
             CS.FlagTerminada,
@@ -114,8 +114,6 @@ BEGIN
             CS.FechaHoraInicio,
             CS.FechaHoraFin
         FROM dbo.ControlSimulacion AS CS
-        LEFT OUTER JOIN dbo.Cuenta AS C
-            ON C.Id = CS.UltimaCuentaCerrada
         ORDER BY CS.FechaOperacion DESC;
     END TRY
     BEGIN CATCH

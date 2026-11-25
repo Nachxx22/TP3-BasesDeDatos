@@ -1,15 +1,20 @@
 /*
    Lee el XML de operaciones desde su archivo (OperacionesTarea3.xml del
-   profesor) y pasa todos sus movimientos, una sola vez, a la tabla variable
-   @movimientosXml. Luego recorre TODAS las fechas del XML, una por una y en
-   orden ascendente (aunque la fecha no tenga nodo FechaOperacion).
+   profesor) y pasa todos sus movimientos, una sola vez, a la tabla de
+   movimientos dbo.MovimientoXml. Luego recorre TODAS las fechas del XML,
+   una por una y en orden ascendente (aunque la fecha no tenga nodo
+   FechaOperacion).
    Por cada dia:
-      1. Altas:       EXEC dbo.sp_CargarAltasDia
-                      (Persona -> Cuenta -> Beneficiario -> Usuario -> PuedeVer)
-      2. Movimientos: los de esa fecha en @movimientosXml, uno por uno y en
-                      el orden del XML, con EXEC dbo.sp_AplicarMovimiento
-      3. Cierres:     cuentas cuyo estado vence ese dia, en orden de Id (PK),
-                      con EXEC dbo.sp_CerrarYAbrirEstadoCuenta
+      1. Altas:    EXEC dbo.sp_CargarAltasDia
+                   (Persona -> Cuenta -> Beneficiario -> Usuario -> PuedeVer)
+      2. Cuentas:  lista de las cuentas del dia: primero las que cierran ese
+                   dia (su estado de cuenta vence) y despues las demas que
+                   tienen movimientos, cada grupo por Id (PK). Por cada una,
+                   EXEC dbo.sp_ProcesarCuentaDia, que aplica sus movimientos
+                   del dia y, si cierra, el cierre, TODO en una sola
+                   transaccion. Este script no abre transacciones.
+      3. Totales:  aplicados, rechazados y cierres del dia, calculados desde
+                   los datos.
 
    Control, con dbo.CorridaSimulacion y
    dbo.ControlSimulacion (12_ControlSimulacion.sql):
@@ -19,14 +24,16 @@
        antigua, y antes de procesar una fecha revisa que la anterior este
        terminada.
      - Si falla sin terminar, la siguiente corrida reanuda esa fecha desde lo
-       ultimo procesado: no repite las altas, sigue con el movimiento que
-       sigue al ultimo procesado, y con la cuenta (PK) que sigue a la ultima
-       cerrada.
+       ultimo procesado: no repite las altas y sigue con la cuenta que va
+       despues de la ultima procesada (UltimaCuentaProcesada). Aunque esa
+       marca quedara atrasada, no se repite nada: sp_ProcesarCuentaDia no
+       hace nada si la cuenta ya se proceso ese dia.
 
-   Si falla un alta o un cierre, la corrida SE DETIENE en esa fecha y deja el
-   error en dbo.ErrorBD; se corrige la causa y se vuelve a correr (reanuda).
-   Si un movimiento es rechazado (fondos insuficientes, etc.) se registra en
-   dbo.ErrorBD y la simulacion continua con el siguiente.
+   Si fallan las altas o una cuenta, la corrida SE DETIENE en esa fecha y
+   deja el error en dbo.ErrorBD (con la fecha y la cuenta); se corrige la
+   causa y se vuelve a correr (reanuda). Si un movimiento es rechazado
+   (fondos insuficientes, etc.) queda marcado en dbo.MovimientoXml, se
+   anota en dbo.ErrorBD y la simulacion continua.
 */
 USE CuentaAhorrosTP2;
 GO
@@ -39,15 +46,13 @@ DECLARE @resultadoCompleta      INT = 0;
 DECLARE @resultadoSinPendientes INT = 1;
 DECLARE @resultadoError         INT = 2;
 DECLARE @resultadoPrueba        INT = 3;
-DECLARE @codigoMovYaRegistrado  INT = 50203;  -- de sp_AplicarMovimiento
-DECLARE @codigoPeriodoCerrado   INT = 50303;  -- de sp_CerrarYAbrirEstadoCuenta
 
 -- SOLO PARA LA PRUEBA DE REANUDACION (Pruebas/Prueba_ReanudarSimulacion.sql):
--- detienen la corrida a proposito, como si fallara. En una corrida normal
--- las tres quedan en NULL.
-DECLARE @pruebaFechaDetener           DATE = Null;  -- ej. '2026-04-01'
-DECLARE @pruebaDetenerTrasMovimientos INT  = Null;  -- ej. 3
-DECLARE @pruebaDetenerTrasCierres     INT  = Null;  -- ej. 1
+-- detienen la corrida a proposito, como si fallara, en la fecha indicada y
+-- despues de procesar esa cantidad de cuentas del dia. En una corrida
+-- normal las dos quedan en NULL.
+DECLARE @pruebaFechaDetener       DATE = NULL;  -- ej. '2026-04-01'
+DECLARE @pruebaDetenerTrasCuentas INT  = NULL;  -- ej. 1
 
 -- XML DE OPERACIONES: se lee del archivo del profesor (OperacionesTarea3.xml).
 -- La ruta es de la computadora donde corre SQL Server. Para usar otra
@@ -56,18 +61,17 @@ DECLARE @pruebaDetenerTrasCierres     INT  = Null;  -- ej. 1
 -- respeta su encoding="UTF-8" (las tildes y enes quedan bien).
 DECLARE @xmlOperaciones XML;
 
--- TABLA DE MOVIMIENTOS: todos los movimientos del XML se leen UNA sola vez
--- con nodes() (SQL masivo). Despues cada fecha toma los suyos de aqui, sin
--- volver a recorrer el XML.
-DECLARE @movimientosXml TABLE (
-    FechaOperacion DATE          NOT NULL,
-    Secuencia      INT           NOT NULL,  -- posicion dentro de su fecha
-    NumeroCuenta   VARCHAR(16)   NOT NULL,
-    TipoMovimiento VARCHAR(64)   NOT NULL,
-    Monto          DECIMAL(18,2) NOT NULL,
-    Descripcion    NVARCHAR(256) NOT NULL,
-    PRIMARY KEY (FechaOperacion, Secuencia)
-);
+-- Movimientos en la tabla sin ninguna fecha en el control: quedaron de otra
+-- simulacion, hay que correr antes Limpiar_DatosTP3.sql
+IF (NOT EXISTS (SELECT 1 FROM dbo.ControlSimulacion)
+    AND EXISTS (SELECT 1 FROM dbo.MovimientoXml))
+BEGIN
+    INSERT INTO dbo.ErrorBD (NumeroError, Procedimiento, Mensaje)
+    VALUES (50502, N'Simulacion_TP3', N'MovimientoXml con datos de otra '
+            + N'simulacion: correr Limpiar_DatosTP3.sql.');
+    PRINT N'MovimientoXml con datos de otra simulacion.';
+    RETURN;
+END;
 
 BEGIN TRY
     SELECT @xmlOperaciones = CAST(Archivo.BulkColumn AS XML)
@@ -76,27 +80,33 @@ BEGIN TRY
         SINGLE_BLOB
     ) AS Archivo;
 
+    -- TABLA DE MOVIMIENTOS: todos los movimientos del XML se pasan UNA sola
+    -- vez con nodes() (SQL masivo). Si ya tiene filas, es una corrida que
+    -- se reanuda y no se vuelve a llenar.
     -- Secuencia = cuantos Movimientos hay antes de este en la misma fecha,
     -- mas 1. Conserva el orden del XML, que importa para el saldo y para la
     -- comision SINPE.
-    INSERT INTO @movimientosXml (
-        FechaOperacion,
-        Secuencia,
-        NumeroCuenta,
-        TipoMovimiento,
-        Monto,
-        Descripcion
-    )
-    SELECT
-        T.Nodo.value('(../@Fecha)[1]', 'DATE'),
-        T.Nodo.value('let $m := . return count(../Movimientos[. << $m]) + 1',
-                     'INT'),
-        T.Nodo.value('@CodigoCuenta', 'VARCHAR(16)'),
-        T.Nodo.value('@Tipo', 'VARCHAR(64)'),
-        T.Nodo.value('@Monto', 'DECIMAL(18,2)'),
-        T.Nodo.value('@Descripcion', 'NVARCHAR(256)')
-    FROM @xmlOperaciones.nodes('/Operaciones/FechaOperacion/Movimientos')
-        AS T(Nodo);
+    IF NOT EXISTS (SELECT 1 FROM dbo.MovimientoXml)
+    BEGIN
+        INSERT INTO dbo.MovimientoXml (
+            FechaOperacion,
+            Secuencia,
+            NumeroCuenta,
+            TipoMovimiento,
+            Monto,
+            Descripcion
+        )
+        SELECT
+            T.Nodo.value('(../@Fecha)[1]', 'DATE'),
+            T.Nodo.value('let $m := . return count(../Movimientos[. << $m]) + 1',
+                         'INT'),
+            T.Nodo.value('@CodigoCuenta', 'VARCHAR(16)'),
+            T.Nodo.value('@Tipo', 'VARCHAR(64)'),
+            T.Nodo.value('@Monto', 'DECIMAL(18,2)'),
+            T.Nodo.value('@Descripcion', 'NVARCHAR(256)')
+        FROM @xmlOperaciones.nodes('/Operaciones/FechaOperacion/Movimientos')
+            AS T(Nodo);
+    END;
 END TRY
 BEGIN CATCH
     INSERT INTO dbo.ErrorBD (
@@ -128,26 +138,27 @@ DECLARE @fecha DATE;
 DECLARE @fechaTexto VARCHAR(10);
 DECLARE @flagDetener BIT = @false;
 DECLARE @flagAltas BIT;
-DECLARE @ultimoMov INT;
-DECLARE @ultimaCuenta INT;
+DECLARE @ultimaCuenta VARCHAR(16);
+DECLARE @numeroCuenta VARCHAR(16);
+DECLARE @posicion INT;
+DECLARE @primeraPosicion INT;
 DECLARE @codigo INT;
 DECLARE @codigoResultado INT = NULL;
-DECLARE @idMovimiento INT;
+DECLARE @aplicados INT;
+DECLARE @rechazados INT;
 DECLARE @idEstadoNuevo INT;
-DECLARE @i INT;
-DECLARE @cantMov INT;
-DECLARE @idCuenta INT;
-DECLARE @cierresHoy INT;
-DECLARE @numeroCuenta VARCHAR(16);
-DECLARE @tipoMov VARCHAR(64);
-DECLARE @monto DECIMAL(18,2);
-DECLARE @descripcion NVARCHAR(256);
-DECLARE @referencia VARCHAR(128);
 DECLARE @mensaje NVARCHAR(256);
 DECLARE @movOk INT = 0;
 DECLARE @movRechazados INT = 0;
 DECLARE @cierresOk INT = 0;
 DECLARE @fechasTerminadas INT = 0;
+
+-- Cuentas a procesar en la fecha, en orden. Posicion sigue creciendo de una
+-- fecha a otra; la posicion dentro del dia es Posicion - @primeraPosicion + 1
+DECLARE @cuentasDia TABLE (
+    Posicion     INT IDENTITY(1,1) PRIMARY KEY,
+    NumeroCuenta VARCHAR(16) NOT NULL
+);
 
 -- Rango de fechas: de la primera a la ultima fecha del XML
 SELECT
@@ -223,10 +234,6 @@ BEGIN TRY
                             WHERE CS.FechaOperacion = @fecha
                               AND CS.FlagTerminada = @true))
         BEGIN
-            SELECT @cantMov = COUNT(*)
-            FROM @movimientosXml AS MX
-            WHERE MX.FechaOperacion = @fecha;
-
             -- Fila de control de la fecha: nueva, o reanudacion
             IF NOT EXISTS (SELECT 1
                            FROM dbo.ControlSimulacion AS CS
@@ -237,7 +244,9 @@ BEGIN TRY
                     IdCorridaSimulacion,
                     CantMovimientosXml
                 )
-                VALUES (@fecha, @idCorrida, @cantMov);
+                SELECT @fecha, @idCorrida, COUNT(*)
+                FROM dbo.MovimientoXml AS MX
+                WHERE MX.FechaOperacion = @fecha;
             END
             ELSE
             BEGIN
@@ -257,8 +266,7 @@ BEGIN TRY
 
             SELECT
                 @flagAltas    = CS.FlagAltasProcesadas,
-                @ultimoMov    = CS.UltimoMovimientoProcesado,
-                @ultimaCuenta = CS.UltimaCuentaCerrada
+                @ultimaCuenta = CS.UltimaCuentaProcesada
             FROM dbo.ControlSimulacion AS CS
             WHERE CS.FechaOperacion = @fecha;
 
@@ -294,133 +302,97 @@ BEGIN TRY
                 END;
             END;
 
-            -- 2. MOVIMIENTOS DEL DIA, desde el que sigue al ultimo procesado
-            SET @i = @ultimoMov + 1;
+            -- 2. CUENTAS DEL DIA. La lista se arma siempre igual (tambien al
+            -- reanudar), asi la posicion de cada cuenta no cambia.
+            DELETE FROM @cuentasDia;
 
-            WHILE (@i <= @cantMov AND @flagDetener = @false)
-            BEGIN
-                -- Referencia estable: fecha + posicion dentro del dia
-                SET @referencia = @fechaTexto + '#' + CAST(@i AS VARCHAR(10));
-
-                -- Si ya esta en dbo.Movimiento (se aplico pero la corrida no
-                -- alcanzo a marcarlo en el control), no se vuelve a aplicar.
-                IF EXISTS (SELECT 1
-                           FROM dbo.Movimiento AS M
-                           WHERE M.ReferenciaOrigen = @referencia)
-                BEGIN
-                    SET @codigo = @codigoMovYaRegistrado;
-                END
-                ELSE
-                BEGIN
-                    SELECT
-                        @numeroCuenta = MX.NumeroCuenta,
-                        @tipoMov      = MX.TipoMovimiento,
-                        @monto        = MX.Monto,
-                        @descripcion  = MX.Descripcion
-                    FROM @movimientosXml AS MX
-                    WHERE MX.FechaOperacion = @fecha
-                      AND MX.Secuencia = @i;
-
-                    EXEC dbo.sp_AplicarMovimiento
-                        @inNumeroCuenta = @numeroCuenta,
-                        @inTipoMovimiento = @tipoMov,
-                        @inFechaMovimiento = @fecha,
-                        @inMonto = @monto,
-                        @inDescripcion = @descripcion,
-                        @inReferenciaOrigen = @referencia,
-                        @outResultCode = @codigo OUTPUT,
-                        @outIdMovimiento = @idMovimiento OUTPUT;
-                END;
-
-                IF (@codigo = 0 OR @codigo = @codigoMovYaRegistrado)
-                BEGIN
-                    SET @movOk = @movOk + 1;
-                    UPDATE dbo.ControlSimulacion
-                    SET UltimoMovimientoProcesado = @i,
-                        CantMovimientosAplicados = CantMovimientosAplicados + 1
-                    WHERE FechaOperacion = @fecha;
-                END
-                ELSE
-                BEGIN
-                    SET @movRechazados = @movRechazados + 1;
-                    SET @mensaje = N'Movimiento rechazado ' + @referencia
-                                 + N' cuenta ' + ISNULL(@numeroCuenta, N'?')
-                                 + N' tipo ' + ISNULL(@tipoMov, N'?')
-                                 + N' monto '
-                                 + ISNULL(CAST(@monto AS NVARCHAR(30)), N'?')
-                                 + N' codigo '
-                                 + ISNULL(CAST(@codigo AS NVARCHAR(10)), N'?');
-                    INSERT INTO dbo.ErrorBD (NumeroError, Procedimiento, Mensaje)
-                    VALUES (@codigo, N'Simulacion_TP3', @mensaje);
-                    UPDATE dbo.ControlSimulacion
-                    SET UltimoMovimientoProcesado = @i,
-                        CantMovimientosRechazados = CantMovimientosRechazados + 1
-                    WHERE FechaOperacion = @fecha;
-                END;
-
-                -- Prueba de reanudacion: detenerse a proposito
-                IF (@fecha = @pruebaFechaDetener
-                    AND @i = @pruebaDetenerTrasMovimientos)
-                BEGIN
-                    SET @mensaje = N'Detenida a proposito (prueba) en '
-                                 + @fechaTexto + N' tras el movimiento '
-                                 + CAST(@i AS NVARCHAR(10));
-                    PRINT @mensaje;
-                    SET @codigoResultado = @resultadoPrueba;
-                    SET @flagDetener = @true;
-                END;
-
-                SET @i = @i + 1;
-            END;
-
-            -- CIERRES DEL DIA: cuentas cuyo estado vence hoy, por Id (PK),
-            --    empezando por la que sigue a la ultima cerrada
-            SET @cierresHoy = 0;
-
-            SELECT @idCuenta = MIN(E.IdCuenta)
-            FROM dbo.EstadoCuenta AS E
+            -- Primero las que cierran hoy (su estado de cuenta vence hoy)
+            INSERT INTO @cuentasDia (NumeroCuenta)
+            SELECT C.NumeroCuenta
+            FROM dbo.Cuenta AS C
+            INNER JOIN dbo.EstadoCuenta AS E
+                ON E.IdCuenta = C.Id
             WHERE E.FechaFin = @fecha
-              AND E.IdCuenta > @ultimaCuenta;
+            ORDER BY C.Id;
 
-            WHILE (@idCuenta IS NOT NULL AND @flagDetener = @false)
+            -- Despues las demas que tienen movimientos hoy (una cuenta que
+            -- no existe va primero: el SP rechaza sus movimientos)
+            INSERT INTO @cuentasDia (NumeroCuenta)
+            SELECT MX.NumeroCuenta
+            FROM dbo.MovimientoXml AS MX
+            LEFT OUTER JOIN dbo.Cuenta AS C
+                ON C.NumeroCuenta = MX.NumeroCuenta
+            WHERE MX.FechaOperacion = @fecha
+              AND NOT EXISTS (SELECT 1
+                              FROM @cuentasDia AS CD
+                              WHERE CD.NumeroCuenta = MX.NumeroCuenta)
+            GROUP BY MX.NumeroCuenta, C.Id
+            ORDER BY C.Id, MX.NumeroCuenta;
+
+            SELECT @primeraPosicion = MIN(CD.Posicion)
+            FROM @cuentasDia AS CD;
+
+            -- Se empieza despues de la ultima cuenta procesada (reanudacion)
+            SELECT @posicion = MIN(CD.Posicion)
+            FROM @cuentasDia AS CD
+            WHERE CD.Posicion > ISNULL((SELECT U.Posicion
+                                        FROM @cuentasDia AS U
+                                        WHERE U.NumeroCuenta = @ultimaCuenta),
+                                       0);
+
+            WHILE (@posicion IS NOT NULL AND @flagDetener = @false)
             BEGIN
-                SELECT @numeroCuenta = C.NumeroCuenta
-                FROM dbo.Cuenta AS C
-                WHERE C.Id = @idCuenta;
+                SELECT @numeroCuenta = CD.NumeroCuenta
+                FROM @cuentasDia AS CD
+                WHERE CD.Posicion = @posicion;
 
-                -- Si ya existe el estado del periodo siguiente, este cierre ya
-                -- se hizo (la corrida anterior no alcanzo a marcarlo).
-                IF EXISTS (SELECT 1
-                           FROM dbo.EstadoCuenta AS E
-                           WHERE E.IdCuenta = @idCuenta
-                             AND E.FechaInicio = DATEADD(DAY, 1, @fecha))
-                BEGIN
-                    SET @codigo = @codigoPeriodoCerrado;
-                END
-                ELSE
-                BEGIN
-                    EXEC dbo.sp_CerrarYAbrirEstadoCuenta
-                        @inNumeroCuenta = @numeroCuenta,
-                        @inFechaCierre = @fecha,
-                        @outResultCode = @codigo OUTPUT,
-                        @outIdNuevoEstadoCuenta = @idEstadoNuevo OUTPUT;
-                END;
+                EXEC dbo.sp_ProcesarCuentaDia
+                    @inNumeroCuenta = @numeroCuenta,
+                    @inFechaOperacion = @fecha,
+                    @outResultCode = @codigo OUTPUT,
+                    @outCantAplicados = @aplicados OUTPUT,
+                    @outCantRechazados = @rechazados OUTPUT,
+                    @outIdNuevoEstadoCuenta = @idEstadoNuevo OUTPUT;
 
-                IF (@codigo = 0 OR @codigo = @codigoPeriodoCerrado)
+                IF (@codigo = 0)
                 BEGIN
-                    SET @cierresOk = @cierresOk + 1;
-                    SET @cierresHoy = @cierresHoy + 1;
+                    SET @movOk = @movOk + @aplicados;
+                    SET @movRechazados = @movRechazados + @rechazados;
+
+                    IF (@idEstadoNuevo IS NOT NULL)
+                        SET @cierresOk = @cierresOk + 1;
+
+                    -- Los rechazos quedan en MovimientoXml; se anotan tambien
+                    -- en ErrorBD, como antes
+                    IF (@rechazados > 0)
+                    BEGIN
+                        INSERT INTO dbo.ErrorBD (NumeroError, Procedimiento,
+                            Mensaje)
+                        SELECT MX.CodigoResultado, N'Simulacion_TP3',
+                            N'Movimiento rechazado ' + @fechaTexto + N'#'
+                            + CAST(MX.Secuencia AS NVARCHAR(10))
+                            + N' cuenta ' + MX.NumeroCuenta
+                            + N' tipo ' + MX.TipoMovimiento
+                            + N' monto ' + CAST(MX.Monto AS NVARCHAR(30))
+                            + N' codigo '
+                            + CAST(MX.CodigoResultado AS NVARCHAR(10))
+                        FROM dbo.MovimientoXml AS MX
+                        WHERE MX.FechaOperacion = @fecha
+                          AND MX.NumeroCuenta = @numeroCuenta
+                          AND MX.CodigoResultado <> 0;
+                    END;
+
                     UPDATE dbo.ControlSimulacion
-                    SET UltimaCuentaCerrada = @idCuenta,
-                        CantCierres = CantCierres + 1
+                    SET UltimaCuentaProcesada = @numeroCuenta
                     WHERE FechaOperacion = @fecha;
 
                     -- Prueba de reanudacion: detenerse a proposito
                     IF (@fecha = @pruebaFechaDetener
-                        AND @cierresHoy = @pruebaDetenerTrasCierres)
+                        AND @posicion - @primeraPosicion + 1
+                            = @pruebaDetenerTrasCuentas)
                     BEGIN
                         SET @mensaje = N'Detenida a proposito (prueba) en '
-                                     + @fechaTexto + N' tras cerrar la cuenta '
+                                     + @fechaTexto + N' tras la cuenta '
                                      + @numeroCuenta;
                         PRINT @mensaje;
                         SET @codigoResultado = @resultadoPrueba;
@@ -430,8 +402,7 @@ BEGIN TRY
                 ELSE
                 BEGIN
                     SET @mensaje = N'Detenida en ' + @fechaTexto
-                                 + N': el cierre de la cuenta '
-                                 + ISNULL(@numeroCuenta, N'?')
+                                 + N': la cuenta ' + @numeroCuenta
                                  + N' fallo con codigo '
                                  + ISNULL(CAST(@codigo AS NVARCHAR(10)), N'?');
                     UPDATE dbo.ControlSimulacion
@@ -444,13 +415,52 @@ BEGIN TRY
                     SET @flagDetener = @true;
                 END;
 
-                SELECT @idCuenta = MIN(E.IdCuenta)
-                FROM dbo.EstadoCuenta AS E
-                WHERE E.FechaFin = @fecha
-                  AND E.IdCuenta > @idCuenta;
+                SELECT @posicion = MIN(CD.Posicion)
+                FROM @cuentasDia AS CD
+                WHERE CD.Posicion > @posicion;
             END;
 
-            --LA FECHA QUEDA TERMINADA
+            -- 3. TOTALES DEL DIA, desde los datos (quedan bien aunque la
+            -- corrida se haya cortado)
+            UPDATE dbo.ControlSimulacion
+            SET CantMovimientosAplicados = (SELECT COUNT(*)
+                    FROM dbo.MovimientoXml AS MX
+                    WHERE MX.FechaOperacion = @fecha
+                      AND MX.CodigoResultado = 0),
+                CantMovimientosRechazados = (SELECT COUNT(*)
+                    FROM dbo.MovimientoXml AS MX
+                    WHERE MX.FechaOperacion = @fecha
+                      AND MX.CodigoResultado <> 0),
+                CantCierres = (SELECT COUNT(*)
+                    FROM dbo.EstadoCuenta AS E
+                    INNER JOIN dbo.EstadoCuenta AS EN
+                        ON EN.IdCuenta = E.IdCuenta
+                       AND EN.FechaInicio = DATEADD(DAY, 1, @fecha)
+                    WHERE E.FechaFin = @fecha)
+            WHERE FechaOperacion = @fecha;
+
+            -- Antes de dar la fecha por terminada: ningun movimiento del dia
+            -- puede quedar pendiente
+            IF (@flagDetener = @false
+                AND EXISTS (SELECT 1
+                            FROM dbo.MovimientoXml AS MX
+                            WHERE MX.FechaOperacion = @fecha
+                              AND MX.FlagProcesado = @false))
+            BEGIN
+                SET @codigo = 50503;
+                SET @mensaje = N'Detenida en ' + @fechaTexto
+                             + N': quedaron movimientos sin procesar.';
+                UPDATE dbo.ControlSimulacion
+                SET CodigoError = @codigo
+                WHERE FechaOperacion = @fecha;
+                INSERT INTO dbo.ErrorBD (NumeroError, Procedimiento, Mensaje)
+                VALUES (@codigo, N'Simulacion_TP3', @mensaje);
+                PRINT @mensaje;
+                SET @codigoResultado = @resultadoError;
+                SET @flagDetener = @true;
+            END;
+
+            -- LA FECHA QUEDA TERMINADA
             IF (@flagDetener = @false)
             BEGIN
                 UPDATE dbo.ControlSimulacion
@@ -550,7 +560,5 @@ SELECT TM.Nombre AS TipoMovimiento, COUNT(*) AS Cantidad
 FROM dbo.Movimiento AS M
 INNER JOIN dbo.TipoMovimiento AS TM
     ON TM.Id = M.IdTipoMovimiento
-GROUP BY TM.Nombre 
+GROUP BY TM.Nombre
 ORDER BY TM.Nombre;
-
-SELECT TOP (20) Id, NumeroError, Mensaje FROM dbo.ErrorBD ORDER BY Id DESC;

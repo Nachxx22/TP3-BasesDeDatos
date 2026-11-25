@@ -1,7 +1,8 @@
 /*
    Limpieza de datos de la simulacion.
    Borra TODOS los datos de cuentas y movimientos, y el control de la
-   simulacion (corridas y fechas), para poder volver a correr
+   simulacion (corridas, fechas y la tabla de movimientos MovimientoXml),
+   para poder volver a correr
    Simulacion_TP3.sql desde la primera fecha. Tambien borra los
    comprobantes (dbo.Comprobante). NO toca los catalogos
    (TipoMoneda, TipoCuentaAhorro, TipoMovimiento, etc.), ni los SP, ni el
@@ -29,6 +30,16 @@ BEGIN
     BEGIN
         DELETE FROM dbo.CorridaSimulacion;
         DBCC CHECKIDENT ('dbo.CorridaSimulacion', RESEED, 0);
+    END;
+END;
+
+-- Tabla de movimientos del XML: la simulacion la vuelve a llenar
+IF OBJECT_ID('dbo.MovimientoXml', 'U') IS NOT NULL
+BEGIN
+    IF EXISTS (SELECT 1 FROM dbo.MovimientoXml)
+    BEGIN
+        DELETE FROM dbo.MovimientoXml;
+        DBCC CHECKIDENT ('dbo.MovimientoXml', RESEED, 0);
     END;
 END;
 
@@ -77,6 +88,7 @@ SELECT (SELECT COUNT(*) FROM dbo.Persona)           AS Personas,
        (SELECT COUNT(*) FROM dbo.ErrorBD)           AS Errores,
        (SELECT COUNT(*) FROM dbo.ControlSimulacion) AS FechasControl,
        (SELECT COUNT(*) FROM dbo.CorridaSimulacion) AS Corridas,
+       (SELECT COUNT(*) FROM dbo.MovimientoXml)     AS MovimientosXml,
        (SELECT COUNT(*) FROM dbo.TipoMovimiento)    AS TiposMov_esperado_18;
 GO
 

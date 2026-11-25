@@ -49,6 +49,7 @@ VALUES
     ('TipoMovimiento', 'Tabla'), ('Movimiento', 'Tabla'),
     ('ErrorBD', 'Tabla'), ('CorridaSimulacion', 'Tabla'),
     ('ControlSimulacion', 'Tabla'), ('Comprobante', 'Tabla'),
+    ('MovimientoXml', 'Tabla'),
     ('sp_RegistrarBitacora', 'Procedimiento'),
     ('sp_IniciarSesion', 'Procedimiento'),
     ('sp_ListarCuentasUsuario', 'Procedimiento'),
@@ -61,18 +62,19 @@ VALUES
     ('sp_ListarTiposDocumento', 'Procedimiento'),
     ('sp_CargarCatalogos', 'Procedimiento'),
     ('sp_CargarAltasDia', 'Procedimiento'),
-    ('sp_AplicarMovimiento', 'Procedimiento'),
-    ('sp_CerrarYAbrirEstadoCuenta', 'Procedimiento'),
+    ('sp_ProcesarCuentaDia', 'Procedimiento'),
     ('sp_ConsultarEstadosCuenta', 'Procedimiento'),
     ('sp_ConsultarMovimientosEstadoCuenta', 'Procedimiento'),
     ('sp_ConsultarControlSimulacion', 'Procedimiento'),
     ('sp_ConsultarComprobantes', 'Procedimiento'),
     ('sp_RegistrarEnvioComprobante', 'Procedimiento'),
     ('fnTextoMonto', 'Funcion'),
+    ('fnTextoComprobante', 'Funcion'),
+    ('fnFechaFinEstadoCuenta', 'Funcion'),
     ('tr_Cuenta_AperturaEstadoCuenta', 'Trigger');
 
 INSERT INTO @R (Rubro, Dato, Obtenido, Esperado)
-SELECT '1 Creacion de la BD', N'Objetos esperados que existen', COUNT(*), 40
+SELECT '1 Creacion de la BD', N'Objetos esperados que existen', COUNT(*), 42
 FROM @Objeto AS O
 WHERE OBJECT_ID(N'dbo.' + O.Nombre) IS NOT NULL;
 
@@ -257,6 +259,20 @@ WHERE ISNULL(E.CantDepositos, -1) <> (SELECT COUNT(*) FROM dbo.Movimiento AS M
         WHERE M.IdEstadoCuenta = E.Id AND M.IdTipoMovimiento IN (1, 5))
     OR ISNULL(E.CantRetirosHumano, -1) <> (SELECT COUNT(*) FROM dbo.Movimiento AS M
         WHERE M.IdEstadoCuenta = E.Id AND M.IdTipoMovimiento = 5);
+
+INSERT INTO @R (Rubro, Dato, Obtenido, Esperado)
+SELECT '6 Movimientos (5c)', N'Movimientos del XML en MovimientoXml', COUNT(*), 100
+FROM dbo.MovimientoXml;
+
+INSERT INTO @R (Rubro, Dato, Obtenido, Esperado)
+SELECT '6 Movimientos (5c)', N'Movimientos del XML sin procesar', COUNT(*), 0
+FROM dbo.MovimientoXml
+WHERE FlagProcesado = 0;
+
+INSERT INTO @R (Rubro, Dato, Obtenido, Esperado)
+SELECT '6 Movimientos (5c)', N'Movimientos del XML rechazados', COUNT(*), 0
+FROM dbo.MovimientoXml
+WHERE CodigoResultado <> 0;
 
 INSERT INTO @R (Rubro, Dato, Obtenido, Esperado)
 SELECT '6 Movimientos (5c)', N'Comprobantes generados', COUNT(*), 100 FROM dbo.Comprobante;

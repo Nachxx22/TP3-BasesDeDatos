@@ -12,11 +12,15 @@
    dbo.ControlSimulacion: una fila por fecha de operacion, con hasta donde se
    llego en esa fecha:
      FlagAltasProcesadas        altas del dia ya aplicadas
-     UltimoMovimientoProcesado  posicion del ultimo nodo Movimientos procesado
-                                (0 = ninguno todavia)
-     UltimaCuentaCerrada        Id (PK) de la ultima cuenta cerrada ese dia
-                                (0 = ninguna todavia)
+     UltimaCuentaProcesada      numero de la ultima cuenta que proceso
+                                sp_ProcesarCuentaDia ese dia (NULL =
+                                ninguna todavia). Al reanudar se sigue con
+                                la cuenta que va despues en la lista del dia.
+     CantMovimientosAplicados,  se calculan desde los datos (MovimientoXml
+     CantMovimientosRechazados, y EstadoCuenta), asi quedan bien aunque la
+     CantCierres                corrida se haya cortado
      FlagTerminada              la fecha quedo completa
+
 
    Se puede correr varias veces: si las tablas ya existen, no hace nada.
    Orden de instalacion: despues de 01_ModeloFisicoFinanciero.sql y antes de
@@ -55,14 +59,11 @@ BEGIN
             CONSTRAINT DF_ControlSimulacion_Altas DEFAULT (0),
         CantMovimientosXml        INT          NOT NULL
             CONSTRAINT DF_ControlSimulacion_MovXml DEFAULT (0),
-        UltimoMovimientoProcesado INT          NOT NULL
-            CONSTRAINT DF_ControlSimulacion_UltMov DEFAULT (0),
         CantMovimientosAplicados  INT          NOT NULL
             CONSTRAINT DF_ControlSimulacion_Aplicados DEFAULT (0),
         CantMovimientosRechazados INT          NOT NULL
             CONSTRAINT DF_ControlSimulacion_Rechazados DEFAULT (0),
-        UltimaCuentaCerrada       INT          NOT NULL
-            CONSTRAINT DF_ControlSimulacion_UltCuenta DEFAULT (0),
+        UltimaCuentaProcesada     VARCHAR(16)  NULL,
         CantCierres               INT          NOT NULL
             CONSTRAINT DF_ControlSimulacion_Cierres DEFAULT (0),
         CantIntentos              INT          NOT NULL
@@ -79,6 +80,31 @@ BEGIN
             FOREIGN KEY (IdCorridaSimulacion)
             REFERENCES dbo.CorridaSimulacion (Id)
     );
+END;
+GO
+
+-- Cambio a la simulacion por cuenta: las columnas de antes se quitan y se
+-- agrega UltimaCuentaProcesada (solo si la tabla ya existia)
+IF COL_LENGTH('dbo.ControlSimulacion', 'UltimoMovimientoProcesado') IS NOT NULL
+BEGIN
+    ALTER TABLE dbo.ControlSimulacion
+        DROP CONSTRAINT DF_ControlSimulacion_UltMov;
+    ALTER TABLE dbo.ControlSimulacion
+        DROP COLUMN UltimoMovimientoProcesado;
+END;
+
+IF COL_LENGTH('dbo.ControlSimulacion', 'UltimaCuentaCerrada') IS NOT NULL
+BEGIN
+    ALTER TABLE dbo.ControlSimulacion
+        DROP CONSTRAINT DF_ControlSimulacion_UltCuenta;
+    ALTER TABLE dbo.ControlSimulacion
+        DROP COLUMN UltimaCuentaCerrada;
+END;
+
+IF COL_LENGTH('dbo.ControlSimulacion', 'UltimaCuentaProcesada') IS NULL
+BEGIN
+    ALTER TABLE dbo.ControlSimulacion
+        ADD UltimaCuentaProcesada VARCHAR(16) NULL;
 END;
 GO
 

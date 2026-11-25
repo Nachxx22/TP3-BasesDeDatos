@@ -2,42 +2,47 @@
    la simulacion no se repite, no brinca fechas
    y, si se corta, reanuda desde la ultima llave procesada.
 
-   Se corre Simulacion_TP3.sql cuatro veces, cambiando SOLO las tres
+   Se corre Simulacion_TP3.sql cuatro veces, cambiando SOLO las dos
    variables @prueba... que estan al inicio de ese script. Despues de cada
    corrida se ejecuta aqui la CONSULTA A. Al final, la CONSULTA B compara
    el resultado con el de la corrida completa sin cortes.
+   La simulacion procesa cada fecha por cuenta (sp_ProcesarCuentaDia, una
+   transaccion por cuenta): primero las cuentas que cierran ese dia y
+   despues las demas que tienen movimientos. El corte se hace despues de
+   una cuenta, nunca a la mitad de una.
 
-   PASO 0. Correr Limpiar_DatosTP3.sql (deja todo en 0, tambien el control).
+   PASO 0. Correr Limpiar_DatosTP3.sql (deja todo en 0, tambien el control
+           y MovimientoXml).
 
-   PASO 1. Corte en un cierre. En Simulacion_TP3.sql:
-              @pruebaFechaDetener           = '2026-04-01'
-              @pruebaDetenerTrasMovimientos = NULL
-              @pruebaDetenerTrasCierres     = 1
+   PASO 1. Corte entre dos cierres. En Simulacion_TP3.sql:
+              @pruebaFechaDetener       = '2026-04-01'
+              @pruebaDetenerTrasCuentas = 1
            El 2026-04-01 no tiene nodo en el XML, pero ese dia cierran dos
-           cuentas: 11000001 (Id 1) y 11000002 (Id 2).
+           cuentas: 11000001 y 11000002.
            Esperado en la CONSULTA A:
              - 31 fechas terminadas (2026-03-01 a 2026-03-31)
              - 2026-04-01: FlagTerminada 0, CantCierres 1,
-               UltimaCuentaCerrada 1 (11000001)
+               UltimaCuentaProcesada 11000001
              - Corrida 1: CodigoResultado 3 (detenida a proposito)
 
-   PASO 2. Corte a mitad de los movimientos. En Simulacion_TP3.sql:
-              @pruebaFechaDetener           = '2026-04-20'
-              @pruebaDetenerTrasMovimientos = 3
-              @pruebaDetenerTrasCierres     = NULL
-           El 2026-04-20 tiene 5 movimientos; del 3 en adelante la cuenta
-           11000005 pasa el limite SINPE diario y paga comision.
+   PASO 2. Corte en un dia con una cuenta que cierra Y tiene movimiento.
+           En Simulacion_TP3.sql:
+              @pruebaFechaDetener       = '2026-04-30'
+              @pruebaDetenerTrasCuentas = 1
+           El 2026-04-30 tiene 2 movimientos: uno de 11000008, que ademas
+           cierra ese dia (va primero, movimiento y cierre en la misma
+           transaccion), y otro de 11000009, que no cierra.
            Esperado en la CONSULTA A:
              - Mensaje "Reanudando la fecha 2026-04-01" en Messages
              - 2026-04-01: FlagTerminada 1, CantCierres 2, CantIntentos 2,
-               UltimaCuentaCerrada 2 (11000002). La cuenta 1 NO se cerro dos
-               veces.
-             - 2026-04-20: FlagTerminada 0, UltimoMovimientoProcesado 3,
-               CantMovimientosAplicados 3 de 5
+               UltimaCuentaProcesada 11000002. La cuenta 11000001 NO se
+               cerro dos veces.
+             - 2026-04-30: FlagTerminada 0, UltimaCuentaProcesada 11000008,
+               CantMovimientosAplicados 1 de 2, CantCierres 1
              - Corrida 2: desde 2026-04-01, CodigoResultado 3
 
-   PASO 3. Corrida normal: las tres variables @prueba... en NULL.
-           Esperado: reanuda 2026-04-20 desde el movimiento 4 y llega a
+   PASO 3. Corrida normal: las dos variables @prueba... en NULL.
+           Esperado: reanuda 2026-04-30 con la cuenta 11000009 y llega a
            2026-06-30. Corrida 3: CodigoResultado 0 (completa).
 
    PASO 4. Correr Simulacion_TP3.sql otra vez, sin cambiar nada.
@@ -82,20 +87,16 @@ SELECT
 SELECT
     CS.FechaOperacion,
     CS.FlagAltasProcesadas,
-    CS.UltimoMovimientoProcesado,
     CS.CantMovimientosXml,
     CS.CantMovimientosAplicados,
     CS.CantMovimientosRechazados,
-    CS.UltimaCuentaCerrada,
-    C.NumeroCuenta AS NumeroUltimaCuentaCerrada,
+    CS.UltimaCuentaProcesada,
     CS.CantCierres,
     CS.CantIntentos,
     CS.FlagTerminada,
     CS.IdCorridaSimulacion
 FROM dbo.ControlSimulacion AS CS
-LEFT OUTER JOIN dbo.Cuenta AS C
-    ON C.Id = CS.UltimaCuentaCerrada
-WHERE CS.FechaOperacion IN ('2026-03-31', '2026-04-01', '2026-04-20',
+WHERE CS.FechaOperacion IN ('2026-03-31', '2026-04-01', '2026-04-30',
                             '2026-06-30')
 ORDER BY CS.FechaOperacion;
 GO

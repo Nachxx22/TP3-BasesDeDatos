@@ -3,7 +3,7 @@
 //   POST /api/comprobantes/enviar  -> sp_ConsultarComprobantes (pendientes),
 //                                     envía cada correo y registra el
 //                                     resultado con sp_RegistrarEnvioComprobante
-// sp_AplicarMovimiento deja cada comprobante listo dentro de la transacción
+// sp_ProcesarCuentaDia deja cada comprobante listo dentro de la transacción
 // del movimiento. Aquí solo se envía, DESPUÉS de esa transacción (ver
 // Correo.js). Un comprobante enviado queda marcado y no se vuelve a enviar.
 // Código propio de esta ruta: 50603 = ya hay un envío en curso.

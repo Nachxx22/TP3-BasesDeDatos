@@ -1,6 +1,6 @@
 // envío por correo de los comprobantes
 //
-// sp_AplicarMovimiento deja cada comprobante listo en dbo.Comprobante (a quién
+// sp_ProcesarCuentaDia deja cada comprobante listo en dbo.Comprobante (a quién
 // va, asunto y texto), dentro de la transacción del movimiento. El correo se
 // envía DESPUÉS, desde aquí, fuera de esa transacción: un correo no se puede
 // deshacer, así que nunca se manda mientras la base de datos todavía podría

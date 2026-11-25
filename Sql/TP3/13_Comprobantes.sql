@@ -5,18 +5,6 @@
    configuracion del tipo de movimiento indica si genera comprobante o no
    (TipoMovimiento.flagGeneraComprobante).
 
-   Diseno, como en la clase 18 (14 oct):
-     - El comprobante guarda el texto del correo y se inserta PRIMERO, en la
-       misma transaccion que el movimiento (sp_AplicarMovimiento). Es el
-       objeto menos importante: comprobante, despues movimiento y al final
-       el saldo.
-     - La vinculacion comprobante-movimiento es 1 a 1 y el FK queda en
-       Movimiento (IdComprobante), porque el comprobante se inserta antes.
-     - El correo NO se envia dentro de la transaccion (un correo no se puede
-       deshacer). Lo envia despues el servidor web, desde la pagina
-       "Control de la simulacion" (solo administrador), y cada comprobante
-       queda marcado como enviado con sp_RegistrarEnvioComprobante.
-
    Crea:
      dbo.Comprobante               una fila por comprobante: a quien va, el
                                    asunto, el texto del correo y el estado
@@ -28,7 +16,7 @@
 
    Se puede correr varias veces: lo que ya existe no se toca.
    Orden de instalacion: despues de 12_ControlSimulacion.sql y antes de
-   Sp_AplicarMovimiento.sql.
+   Funciones/Fn_TextoComprobante.sql.
 */
 USE CuentaAhorrosTP2;
 GO

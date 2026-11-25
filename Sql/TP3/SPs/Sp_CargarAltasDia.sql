@@ -5,7 +5,7 @@
         -> Usuario -> UsuarioPuedeVer
      El trigger dbo.tr_Cuenta_AperturaEstadoCuenta abre solo el primer
      estado de cuenta cuando se inserta la Cuenta.
-     NO procesa los nodos Movimientos (los aplica sp_AplicarMovimiento).
+     NO procesa los nodos Movimientos (los aplica sp_ProcesarCuentaDia).
      Si la fecha no tiene nodo FechaOperacion no hace nada y devuelve 0
      (el simulador igual recorre todas las fechas).
 

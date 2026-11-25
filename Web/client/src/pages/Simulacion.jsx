@@ -117,9 +117,9 @@ export default function Simulacion() {
           {aMedias && (
             <p className="alerta">
               La fecha {aMedias.FechaOperacion} quedó a medias: altas{' '}
-              {aMedias.FlagAltasProcesadas ? 'hechas' : 'pendientes'}, movimiento{' '}
-              {aMedias.UltimoMovimientoProcesado} de {aMedias.CantMovimientosXml}, cierres
-              hasta la cuenta {aMedias.NumeroUltimaCuentaCerrada ?? 'ninguna'}
+              {aMedias.FlagAltasProcesadas ? 'hechas' : 'pendientes'}, movimientos{' '}
+              {aMedias.CantMovimientosProcesados} de {aMedias.CantMovimientosXml}, última
+              cuenta procesada {aMedias.UltimaCuentaProcesada ?? 'ninguna'}
               {aMedias.CodigoError ? ` (error ${aMedias.CodigoError})` : ''}. La próxima
               corrida reanuda desde ahí.
             </p>
@@ -175,7 +175,7 @@ export default function Simulacion() {
                   <th>Aplicados</th>
                   <th>Rechazados</th>
                   <th>Cierres</th>
-                  <th>Última cuenta cerrada</th>
+                  <th>Última cuenta procesada</th>
                   <th>Intentos</th>
                   <th>Corrida</th>
                   <th>Terminó</th>
@@ -190,12 +190,12 @@ export default function Simulacion() {
                     </td>
                     <td>{f.FlagAltasProcesadas ? 'Sí' : 'No'}</td>
                     <td>
-                      {f.UltimoMovimientoProcesado} de {f.CantMovimientosXml}
+                      {f.CantMovimientosProcesados} de {f.CantMovimientosXml}
                     </td>
                     <td>{f.CantMovimientosAplicados}</td>
                     <td>{f.CantMovimientosRechazados}</td>
                     <td>{f.CantCierres}</td>
-                    <td>{f.NumeroUltimaCuentaCerrada ?? '—'}</td>
+                    <td>{f.UltimaCuentaProcesada ?? '—'}</td>
                     <td>{f.CantIntentos > 1 ? `${f.CantIntentos} (reanudada)` : f.CantIntentos}</td>
                     <td>{f.IdCorridaSimulacion}</td>
                     <td>{f.FechaHoraFin ?? '—'}</td>

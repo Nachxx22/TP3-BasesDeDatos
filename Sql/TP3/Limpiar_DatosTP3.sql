@@ -8,10 +8,6 @@
    trigger. Tambien deja vacia dbo.ErrorBD y reinicia los Id para que
    empiecen en 1.
    El orden de los DELETE respeta las llaves foraneas (primero las hijas).
-
-   Al final vuelve a crear el usuario administrador fquiros (el mismo bloque
-   de Crear_Admin.sql), porque la limpieza borra todos los usuarios y
-   personas. Asi, despues de limpiar, la base queda lista para la simulacion.
 */
 USE CuentaAhorrosTP2;
 GO
@@ -71,66 +67,9 @@ DBCC CHECKIDENT ('dbo.Persona',         RESEED, 0);
 DBCC CHECKIDENT ('dbo.ErrorBD',         RESEED, 0);
 GO
 
--- Administrador (fquiros / admin1234). Se vuelve a crear porque arriba se
--- borraron todos los usuarios y personas. Es el mismo bloque de
--- Crear_Admin.sql: los Id reiniciados hacen que quede con Id 1.
-DECLARE @nombreUsuario VARCHAR(64)  = 'fquiros';
-DECLARE @clave         VARCHAR(128) = 'admin1234';
-DECLARE @idTipoDocu    INT          = 1;                       -- Cedula Nacional
-DECLARE @valorDoc      VARCHAR(32)  = '130004000';
-DECLARE @nombre        VARCHAR(64)  = 'Franco Quiros Ramirez';
-DECLARE @fechaNac      DATE         = '1972-05-14';
-DECLARE @email         VARCHAR(128) = 'fquiros@example.com';
-DECLARE @telefono1     VARCHAR(16)  = '65360060';
-DECLARE @telefono2     VARCHAR(16)  = '23746093';
-DECLARE @idPersona     INT;
-
-BEGIN TRY
-    BEGIN TRANSACTION;
-
-    INSERT INTO dbo.Persona (
-        IdTipoDocuIdentidad, Nombre, ValorDocumentoIdentidad,
-        FechaNacimiento, Email
-    )
-    VALUES (
-        @idTipoDocu, @nombre, @valorDoc, @fechaNac, @email
-    );
-
-    SET @idPersona = SCOPE_IDENTITY();
-
-    INSERT INTO dbo.Telefono (IdPersona, Numero)
-    VALUES (@idPersona, @telefono1),
-           (@idPersona, @telefono2);
-
-    INSERT INTO dbo.Usuario (
-        NombreUsuario, Clave, EsAdministrador, IdPersona
-    )
-    VALUES (
-        @nombreUsuario, @clave, 1, @idPersona
-    );
-
-    COMMIT TRANSACTION;
-END TRY
-BEGIN CATCH
-    IF (@@TRANCOUNT > 0)
-        ROLLBACK TRANSACTION;
-
-    INSERT INTO dbo.ErrorBD (
-        NumeroError, Severidad, Estado, Procedimiento, Linea, Mensaje
-    )
-    VALUES (
-        ERROR_NUMBER(), ERROR_SEVERITY(), ERROR_STATE(),
-        ERROR_PROCEDURE(), ERROR_LINE(), ERROR_MESSAGE()
-    );
-
-    THROW;
-END CATCH;
-GO
-
--- Verificacion: solo queda el administrador (1 persona, 1 usuario, 2 telefonos),
--- lo demas en 0, y los catalogos intactos (TipoMovimiento = 18)
-SELECT (SELECT COUNT(*) FROM dbo.Persona)           AS Personas_esperado_1,
-       (SELECT COUNT(*) FROM dbo.Usuario)           AS Usuarios_esperado_1,
+-- Verificacion: todo en 0 y los catalogos intactos (TipoMovimiento = 18)
+SELECT (SELECT COUNT(*) FROM dbo.Persona)           AS Personas,
+       (SELECT COUNT(*) FROM dbo.Usuario)           AS Usuarios,
        (SELECT COUNT(*) FROM dbo.Cuenta)            AS Cuentas,
        (SELECT COUNT(*) FROM dbo.EstadoCuenta)      AS Estados,
        (SELECT COUNT(*) FROM dbo.Movimiento)        AS Movimientos,
@@ -142,8 +81,13 @@ SELECT (SELECT COUNT(*) FROM dbo.Persona)           AS Personas_esperado_1,
 GO
 
 
---Para probar los correos en ethereal solo pone 3 comprobantes con envio pendiente
+/*
+SELECT * FROM dbo.Usuario WHERE NombreUsuario = 'fquiros';      -- 0 filas
+SELECT * FROM dbo.Persona WHERE ValorDocumentoIdentidad = '130004000';  -- 0
+*/
 
+/*
 UPDATE dbo.Comprobante
-SET FlagEnviado = 0, FechaHoraEnvio = NULL
-WHERE Id IN (1, 2, 3);
+SET FlagEnviado=0, FechaHoraEnvio=NULL
+WHERE Id IN (1,2,3);
+*/

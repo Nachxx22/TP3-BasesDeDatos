@@ -1,24 +1,19 @@
 /*
     Procesa lo de una cuenta en una fecha de la simulacion: aplica sus
-    movimientos pendientes del dia (lo de sp_AplicarMovimiento) y, si su
-    estado de cuenta vence ese dia, lo cierra y abre el del siguiente
-    periodo (lo de sp_CerrarYAbrirEstadoCuenta).
-    Primero valida y calcula todo, sin transaccion. Solo si todo esta bien
-    abre UNA transaccion, que solo registra lo calculado: lo de la cuenta
-    en ese dia queda completo o no queda nada.
-    Como antes, un movimiento que no se puede aplicar se rechaza y los
-    demas siguen; queda marcado en dbo.MovimientoXml con su codigo. Si no
-    hay nada pendiente, devuelve 0 sin hacer nada (sirve para reanudar).
-    Los calculos puros estan en las funciones dbo.fnTextoComprobante y
-    dbo.fnFechaFinEstadoCuenta, que no escriben ni abren transacciones.
-    Codigos de resultado (el detalle esta junto a cada validacion):
-        0                   Operacion exitosa (o no habia nada que hacer).
+    movimientos pendientes del dia y, si su estado de cuenta vence ese dia,
+    lo cierra y abre el del siguiente periodo. Primero valida y calcula todo
+    sin transaccion; solo si todo esta bien abre UNA transaccion que solo
+    registra lo calculado: lo de la cuenta en ese dia queda completo o no
+    queda nada. Un movimiento que no se puede aplicar se rechaza, los demas
+    siguen y queda marcado en dbo.MovimientoXml con su codigo. Si no hay
+    nada pendiente, devuelve 0 sin hacer nada (sirve para reanudar).
+    Codigos de resultado:
+        0                   Exito (o no habia nada que hacer).
         50200               Parametros invalidos.
         50203-50205, 50210  Validaciones de la cuenta en la fecha.
         50303, 50305-50308  Validaciones del cierre.
         Otro                Error de SQL Server (queda en dbo.ErrorBD).
-    Rechazo de un movimiento (MovimientoXml.CodigoResultado):
-        50200-50209         Los mismos de sp_AplicarMovimiento.
+    Rechazo de un movimiento (MovimientoXml.CodigoResultado): 50200-50209.
     Ejemplo de ejecucion (solo en una base de pruebas):
     DECLARE @Codigo INT, @Aplicados INT, @Rechazados INT, @IdEstado INT;
     EXEC dbo.sp_ProcesarCuentaDia
@@ -126,9 +121,7 @@ BEGIN
     END;
 
     BEGIN TRY
-
-        -- 1. VALIDACIONES (sin transaccion)
-
+        -- 1. VALIDACIONES, sin transaccion
         SELECT
             @IdCuenta = C.Id, @FechaCreacion = C.FechaCreacion,
             @SaldoCuenta = C.Saldo, @EmailDueno = P.Email,
@@ -149,9 +142,8 @@ BEGIN
         INNER JOIN dbo.TipoMoneda AS TMO ON TMO.Id = T.IdTipoMoneda
         WHERE C.NumeroCuenta = @inNumeroCuenta;
 
-        -- Como antes, el movimiento de una cuenta que no existe se rechaza
-        -- (50202) y la simulacion sigue. Es una sola actualizacion: no
-        -- necesita transaccion.
+        -- Cuenta inexistente: sus movimientos se rechazan (50202). Es una
+        -- sola actualizacion, no necesita transaccion
         IF @IdCuenta IS NULL
         BEGIN
             UPDATE dbo.MovimientoXml
@@ -164,8 +156,7 @@ BEGIN
             RETURN;
         END;
 
-        -- Movimientos pendientes del dia. La referencia es la fecha y la
-        -- posicion del movimiento en el dia: '2026-04-20#3'.
+        -- Movimientos pendientes del dia; referencia: '2026-04-20#3'
         INSERT INTO @MovimientosDia (Secuencia, IdMovimientoXml,
             ReferenciaOrigen, TipoMovimiento, Monto, Descripcion)
         SELECT MX.Secuencia, MX.Id,
@@ -179,8 +170,7 @@ BEGIN
 
         SET @CantPendientes = @@ROWCOUNT;
 
-        -- Cierra hoy si un estado suyo vence hoy; si ya existe el estado
-        -- del siguiente periodo, el cierre ya se hizo
+        --Cierra hoy si un estado vence hoy y aun no existe el siguiente
         SET @FechaInicioNueva = DATEADD(DAY, 1, @inFechaOperacion);
 
         IF EXISTS (SELECT 1 FROM dbo.EstadoCuenta AS E
@@ -224,8 +214,7 @@ BEGIN
         INNER JOIN dbo.Movimiento AS M
             ON M.ReferenciaOrigen = MD.ReferenciaOrigen;
 
-        -- Movimientos del cierre ya registrados (referencia estable,
-        -- diferente para cada cuenta y fecha)
+        -- Movimientos del cierre ya registrados (referencia por cuenta y dia)
         SET @ReferenciaOrigen = 'CIERRE:' + @inNumeroCuenta + ':'
             + CONVERT(CHAR(8), @inFechaOperacion, 112);
 
@@ -247,7 +236,7 @@ BEGIN
            OR (TM.Id = 11 AND TM.Nombre = 'Cargo Servicio Mensual'
                AND TM.Accion = 'Debito');
 
-        -- Las mismas validaciones de los SP anteriores, en el mismo orden
+        -- Validaciones de la cuenta, antes de abrir la transaccion
         SET @outResultCode = CASE
             WHEN @FlagPeriodoCerrado = @true
                 THEN 50303  -- quedan movimientos de un periodo ya cerrado
@@ -270,8 +259,7 @@ BEGIN
         IF @outResultCode <> 0
             RETURN;
 
-        -- Tipo de la comision SINPE y lo enviado por SINPE ese dia antes
-        -- de estos movimientos (normalmente nada)
+        -- Tipo de la comision SINPE y lo enviado por SINPE antes ese dia
         SELECT @IdTipoComision = TM.Id
         FROM dbo.TipoMovimiento AS TM
         WHERE TM.Id = 10 AND TM.Nombre = 'Comision Sinpe'
@@ -284,10 +272,8 @@ BEGIN
           AND M.FechaMovimiento = @inFechaOperacion
           AND M.IdTipoMovimiento = 9;
 
-
-        -- 2. MOVIMIENTOS DEL DIA (lo de sp_AplicarMovimiento), uno por uno
-        -- en el orden del XML. Solo se calculan: se registran en el paso 4.
-
+        -- 2.APLICACION DE MOVIMIENTOS, uno por uno en el orden del
+        -- XML. Solo se calculan: se registran en la transaccion (paso 4)
         SET @SaldoActual = @SaldoCuenta;
 
         SELECT @SecuenciaXml = MIN(MD.Secuencia)
@@ -312,8 +298,7 @@ BEGIN
             WHERE TM.Nombre = @TipoTexto
               AND TM.Id IN (1, 2, 3, 4, 5, 8, 9);
 
-            -- Saldo despues del movimiento y comision si lo enviado por
-            -- SINPE en el dia pasa el maximo del tipo de cuenta
+            -- Nuevo saldo y comision si el SINPE del dia pasa el maximo
             SET @SaldoPrincipal = @SaldoActual
                 + CASE WHEN @Accion = 'Credito' THEN @Monto ELSE -@Monto END;
 
@@ -326,7 +311,7 @@ BEGIN
 
             SET @SaldoFinal = @SaldoPrincipal - @MontoComision;
 
-            -- Las mismas validaciones de sp_AplicarMovimiento, en orden
+            -- Validaciones del movimiento
             SET @CodigoMovimiento = CASE
                 WHEN @Monto <= 0 OR LTRIM(RTRIM(@Descripcion)) = ''
                     THEN 50200  -- monto o descripcion invalidos
@@ -365,8 +350,7 @@ BEGIN
                             @SimboloMoneda));
                 END;
 
-                -- El movimiento y, si hay, la comision SINPE como segundo
-                -- movimiento con la misma referencia (sin comprobante)
+                -- El movimiento y, si hay, la comision SINPE (secuencia 2)
                 SET @Orden = @Orden + 1;
 
                 INSERT INTO @MovimientosNuevos (Orden, IdTipoMovimiento,
@@ -412,7 +396,7 @@ BEGIN
             WHERE MD.Secuencia > @SecuenciaXml;
         END;
 
-        -- Contadores del estado, de una vez: los mismos tipos
+        --Actualizacion de contadores del estado, de una vez
         SELECT
             @CantDepositos = @CantDepositos
               + COUNT(CASE WHEN MN.IdTipoMovimiento IN (1, 2, 8) THEN 1 END),
@@ -432,16 +416,14 @@ BEGIN
               + COUNT(CASE WHEN MN.IdTipoMovimiento = 5 THEN 1 END)
         FROM @MovimientosNuevos AS MN;
 
-        -- 3. CIERRE (lo de sp_CerrarYAbrirEstadoCuenta), con lo que dejaron
-        -- los movimientos del dia. Tambien solo se calcula.
-
+        -- 3. CIERRE DEL ESTADO DE CUENTA, con lo que dejaron los
+        -- movimientos del dia. Tambien solo se calcula
         SET @SaldoTrabajo = @SaldoActual;
         SET @SaldoMinimoFinal = @SaldoMinimoPeriodo;
 
         IF @FlagCierre = @true
         BEGIN
-            -- La tasa del catalogo se divide entre 12; NumRetiros es el
-            -- limite de operaciones gratis por periodo
+            -- Intereses (tasa anual / 12) y comisiones por exceso
             SET @MontoIntereses = ROUND(
                 @SaldoMinimoPeriodo * @TasaInteresAnual / 1200.0, 2);
 
@@ -464,15 +446,14 @@ BEGIN
             SET @TotalCargos = @MontoExcesoATM + @MontoExcesoHumano
                 + @MontoMulta + @CargoMensual;
 
-            -- No saldos negativos: si no alcanza, no se aplica nada de la
-            -- cuenta en el dia 
+            -- Sin saldos negativos: si no alcanza, nada de la cuenta ese dia
             IF @SaldoTrabajo + @MontoIntereses < @TotalCargos
             BEGIN
                 SET @outResultCode = 50307;
                 RETURN;
             END;
 
-            -- Registra en orden los movimientos del cierre
+            -- Movimientos de intereses, comisiones, multa y cargo
             SET @Secuencia = 1;
 
             WHILE @Secuencia <= 5
@@ -520,8 +501,7 @@ BEGIN
                 @inFechaOperacion);
         END;
 
-        -- Justo antes de la transaccion: lo que se leyo al inicio no cambio
-        -- mientras se calculaba
+        -- Justo antes de la transaccion: los datos no cambiaron
         IF (SELECT C.Saldo FROM dbo.Cuenta AS C
             WHERE C.Id = @IdCuenta) <> @SaldoCuenta
            OR (SELECT COUNT(*) FROM dbo.MovimientoXml AS MX
@@ -537,8 +517,8 @@ BEGIN
             RETURN;
         END;
 
-        -- 4. TRANSACCION: solo registra lo calculado, de lo menos a lo mas
-        -- importante (comprobante, movimiento, estado y al final el saldo)
+        -- 4.UNA TRANSACCION: solo registra lo calculado, de lo
+        -- menos a lo mas importante (comprobante, movimiento, estado, saldo)
         BEGIN TRANSACTION;
 
         INSERT INTO dbo.Comprobante (IdCuenta, FechaOperacion, EmailDestino,
@@ -550,8 +530,7 @@ BEGIN
 
         SET @IdUltimoComprobante = SCOPE_IDENTITY();
 
-        -- Cada movimiento con su comprobante: Id = ultimo Id insertado -
-        -- cantidad de comprobantes + secuencia 
+        --Movimientos; comprobante = ultimo Id - cantidad + sec
         INSERT INTO dbo.Movimiento (IdEstadoCuenta, IdTipoMovimiento,
             FechaMovimiento, Monto, Descripcion, SaldoPosterior,
             ReferenciaOrigen, SecuenciaOrigen, IdComprobante)
@@ -568,6 +547,7 @@ BEGIN
         FROM dbo.MovimientoXml AS MX
         INNER JOIN @MovimientosDia AS MD ON MD.IdMovimientoXml = MX.Id;
 
+        -- Contadores y saldos del estado; [5d] su cierre
         UPDATE dbo.EstadoCuenta
         SET SaldoFinal = @SaldoTrabajo, SaldoMinimo = @SaldoMinimoFinal,
             InteresesAcumulados = @InteresesAcumulados,
@@ -580,8 +560,7 @@ BEGIN
             CantRetirosHumano = @RetirosHumano
         WHERE Id = @IdEstadoCuenta;
 
-        -- Estado del siguiente periodo, solo si la cuenta cierra hoy: en vez
-        -- de un IF, el filtro va en el WHERE
+        --Apertura del estado siguiente, solo si cierra (filtro WHERE)
         INSERT INTO dbo.EstadoCuenta (IdCuenta, FechaInicio, FechaFin,
             SaldoInicial, SaldoMinimo, SaldoFinal, InteresesAcumulados,
             CantRetiros, CantDepositos, CantSinpeEntrantes,
@@ -594,6 +573,7 @@ BEGIN
         SET @outIdNuevoEstadoCuenta = CASE WHEN @FlagCierre = @true
             THEN SCOPE_IDENTITY() END;
 
+        -- Saldo de la cuenta, lo mas importante, al final
         UPDATE dbo.Cuenta
         SET Saldo = @SaldoTrabajo
         WHERE Id = @IdCuenta;

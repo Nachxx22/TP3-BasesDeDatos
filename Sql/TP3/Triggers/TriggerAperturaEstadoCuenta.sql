@@ -7,9 +7,6 @@ GO
    la cuenta (0) y todos sus contadores empiezan en 0.
    Funciona con varias cuentas en un mismo INSERT (usa la tabla inserted).
 
-   Una cuenta nueva debe iniciar con saldo 0. Si alguna no lo hace, se
-   rechaza todo el INSERT con THROW 50110 y no queda nada a medias.
-
    Se puede ejecutar varias veces: si el trigger ya existe, lo reemplaza.
 */
 
@@ -19,16 +16,6 @@ AFTER INSERT
 AS
 BEGIN
     SET NOCOUNT ON;
-
-    -- Las cuentas inician con saldo 0.
-    IF EXISTS (
-        SELECT 1
-        FROM inserted AS i
-        WHERE i.Saldo <> 0
-    )
-    BEGIN
-        THROW 50110, 'Las cuentas deben iniciar con saldo 0.', 1;
-    END;
 
     -- Primer estado de cuenta de cada cuenta insertada.
     INSERT INTO dbo.EstadoCuenta (

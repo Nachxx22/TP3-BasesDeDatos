@@ -25,9 +25,10 @@
        terminada.
      - Si falla sin terminar, la siguiente corrida reanuda esa fecha desde lo
        ultimo procesado: no repite las altas y sigue con la cuenta que va
-       despues de la ultima procesada (UltimaCuentaProcesada). Aunque esa
-       marca quedara atrasada, no se repite nada: sp_ProcesarCuentaDia no
-       hace nada si la cuenta ya se proceso ese dia.
+       despues de la ultima procesada, guardada por su PK
+       (IdUltimaCuentaProcesada). Aunque esa marca quedara atrasada, no se
+       repite nada: sp_ProcesarCuentaDia no hace nada si la cuenta ya se
+       proceso ese dia.
 
    Si fallan las altas o una cuenta, la corrida SE DETIENE en esa fecha y
    deja el error en dbo.ErrorBD (con la fecha y la cuenta); se corrige la
@@ -61,6 +62,17 @@ DECLARE @pruebaDetenerTrasCuentas INT  = NULL;  -- ej. 1
 -- respeta su encoding="UTF-8" (las tildes y enes quedan bien).
 DECLARE @xmlOperaciones XML;
 
+-- Movimientos tal como se leen del XML. Sec (IDENTITY) los numera en el
+-- orden en que vienen.
+DECLARE @movimientosLeidos TABLE (
+    Sec            INT IDENTITY(1,1) PRIMARY KEY,
+    FechaOperacion DATE,
+    NumeroCuenta   VARCHAR(16),
+    TipoMovimiento VARCHAR(64),
+    Monto          DECIMAL(18,2),
+    Descripcion    NVARCHAR(256)
+);
+
 -- Movimientos en la tabla sin ninguna fecha en el control: quedaron de otra
 -- simulacion, hay que correr antes Limpiar_DatosTP3.sql
 IF (NOT EXISTS (SELECT 1 FROM dbo.ControlSimulacion)
@@ -81,13 +93,31 @@ BEGIN TRY
     ) AS Archivo;
 
     -- TABLA DE MOVIMIENTOS: todos los movimientos del XML se pasan UNA sola
-    -- vez con nodes() (SQL masivo). Si ya tiene filas, es una corrida que
-    -- se reanuda y no se vuelve a llenar.
-    -- Secuencia = cuantos Movimientos hay antes de este en la misma fecha,
-    -- mas 1. Conserva el orden del XML, que importa para el saldo y para la
-    -- comision SINPE.
+    -- vez (SQL masivo). Si ya tiene filas, es una corrida que se reanuda y
+    -- no se vuelve a llenar.
     IF NOT EXISTS (SELECT 1 FROM dbo.MovimientoXml)
     BEGIN
+        -- Una sola lectura del XML: todos los nodos Movimientos, en orden.
+        -- La fecha es el atributo Fecha del nodo padre (FechaOperacion).
+        INSERT INTO @movimientosLeidos (
+            FechaOperacion,
+            NumeroCuenta,
+            TipoMovimiento,
+            Monto,
+            Descripcion
+        )
+        SELECT
+            T.Nodo.value('(../@Fecha)[1]', 'DATE'),
+            T.Nodo.value('@CodigoCuenta', 'VARCHAR(16)'),
+            T.Nodo.value('@Tipo', 'VARCHAR(64)'),
+            T.Nodo.value('@Monto', 'DECIMAL(18,2)'),
+            T.Nodo.value('@Descripcion', 'NVARCHAR(256)')
+        FROM @xmlOperaciones.nodes('/Operaciones/FechaOperacion/Movimientos')
+            AS T(Nodo);
+
+        -- Secuencia = posicion del movimiento dentro de su fecha:
+        -- Sec - (primer Sec de esa fecha) + 1. Conserva el orden del XML,
+        -- que importa para el saldo y para la comision SINPE.
         INSERT INTO dbo.MovimientoXml (
             FechaOperacion,
             Secuencia,
@@ -97,15 +127,16 @@ BEGIN TRY
             Descripcion
         )
         SELECT
-            T.Nodo.value('(../@Fecha)[1]', 'DATE'),
-            T.Nodo.value('let $m := . return count(../Movimientos[. << $m]) + 1',
-                         'INT'),
-            T.Nodo.value('@CodigoCuenta', 'VARCHAR(16)'),
-            T.Nodo.value('@Tipo', 'VARCHAR(64)'),
-            T.Nodo.value('@Monto', 'DECIMAL(18,2)'),
-            T.Nodo.value('@Descripcion', 'NVARCHAR(256)')
-        FROM @xmlOperaciones.nodes('/Operaciones/FechaOperacion/Movimientos')
-            AS T(Nodo);
+            ML.FechaOperacion,
+            ML.Sec - (SELECT MIN(M2.Sec)
+                      FROM @movimientosLeidos AS M2
+                      WHERE M2.FechaOperacion = ML.FechaOperacion) + 1,
+            ML.NumeroCuenta,
+            ML.TipoMovimiento,
+            ML.Monto,
+            ML.Descripcion
+        FROM @movimientosLeidos AS ML
+        ORDER BY ML.Sec;
     END;
 END TRY
 BEGIN CATCH
@@ -120,16 +151,6 @@ BEGIN CATCH
     RETURN;
 END CATCH;
 
-IF (@xmlOperaciones IS NULL
-    OR @xmlOperaciones.exist('/Operaciones/FechaOperacion') = 0)
-BEGIN
-    INSERT INTO dbo.ErrorBD (NumeroError, Procedimiento, Mensaje)
-    VALUES (50501, N'Simulacion_TP3',
-            N'El XML de operaciones esta vacio o no trae fechas.');
-    PRINT N'El XML de operaciones esta vacio o no trae fechas.';
-    RETURN;
-END;
-
 -- Variables
 DECLARE @idCorrida INT;
 DECLARE @fechaInicio DATE;
@@ -138,7 +159,8 @@ DECLARE @fecha DATE;
 DECLARE @fechaTexto VARCHAR(10);
 DECLARE @flagDetener BIT = @false;
 DECLARE @flagAltas BIT;
-DECLARE @ultimaCuenta VARCHAR(16);
+DECLARE @idUltimaCuenta INT;
+DECLARE @idCuenta INT;
 DECLARE @numeroCuenta VARCHAR(16);
 DECLARE @posicion INT;
 DECLARE @primeraPosicion INT;
@@ -154,10 +176,12 @@ DECLARE @cierresOk INT = 0;
 DECLARE @fechasTerminadas INT = 0;
 
 -- Cuentas a procesar en la fecha, en orden. Posicion sigue creciendo de una
--- fecha a otra; la posicion dentro del dia es Posicion - @primeraPosicion + 1
+-- fecha a otra; la posicion dentro del dia es Posicion - @primeraPosicion + 1.
+-- IdCuenta es la PK de la cuenta (NULL si la cuenta no existe).
 DECLARE @cuentasDia TABLE (
     Posicion     INT IDENTITY(1,1) PRIMARY KEY,
-    NumeroCuenta VARCHAR(16) NOT NULL
+    NumeroCuenta VARCHAR(16) NOT NULL,
+    IdCuenta     INT NULL
 );
 
 -- Rango de fechas: de la primera a la ultima fecha del XML
@@ -165,6 +189,16 @@ SELECT
     @fechaInicio = MIN(T.Nodo.value('@Fecha', 'DATE')),
     @fechaFin    = MAX(T.Nodo.value('@Fecha', 'DATE'))
 FROM @xmlOperaciones.nodes('/Operaciones/FechaOperacion') AS T(Nodo);
+
+-- Sin fechas (XML vacio o sin nodos FechaOperacion): no hay que simular
+IF (@fechaInicio IS NULL)
+BEGIN
+    INSERT INTO dbo.ErrorBD (NumeroError, Procedimiento, Mensaje)
+    VALUES (50501, N'Simulacion_TP3',
+            N'El XML de operaciones esta vacio o no trae fechas.');
+    PRINT N'El XML de operaciones esta vacio o no trae fechas.';
+    RETURN;
+END;
 
 -- Una corrida anterior que nunca llego al final quedo interrumpida
 UPDATE dbo.CorridaSimulacion
@@ -265,8 +299,8 @@ BEGIN TRY
               AND FechaDesde IS NULL;
 
             SELECT
-                @flagAltas    = CS.FlagAltasProcesadas,
-                @ultimaCuenta = CS.UltimaCuentaProcesada
+                @flagAltas      = CS.FlagAltasProcesadas,
+                @idUltimaCuenta = CS.IdUltimaCuentaProcesada
             FROM dbo.ControlSimulacion AS CS
             WHERE CS.FechaOperacion = @fecha;
 
@@ -307,8 +341,8 @@ BEGIN TRY
             DELETE FROM @cuentasDia;
 
             -- Primero las que cierran hoy (su estado de cuenta vence hoy)
-            INSERT INTO @cuentasDia (NumeroCuenta)
-            SELECT C.NumeroCuenta
+            INSERT INTO @cuentasDia (NumeroCuenta, IdCuenta)
+            SELECT C.NumeroCuenta, C.Id
             FROM dbo.Cuenta AS C
             INNER JOIN dbo.EstadoCuenta AS E
                 ON E.IdCuenta = C.Id
@@ -317,8 +351,8 @@ BEGIN TRY
 
             -- Despues las demas que tienen movimientos hoy (una cuenta que
             -- no existe va primero: el SP rechaza sus movimientos)
-            INSERT INTO @cuentasDia (NumeroCuenta)
-            SELECT MX.NumeroCuenta
+            INSERT INTO @cuentasDia (NumeroCuenta, IdCuenta)
+            SELECT MX.NumeroCuenta, C.Id
             FROM dbo.MovimientoXml AS MX
             LEFT OUTER JOIN dbo.Cuenta AS C
                 ON C.NumeroCuenta = MX.NumeroCuenta
@@ -332,17 +366,20 @@ BEGIN TRY
             SELECT @primeraPosicion = MIN(CD.Posicion)
             FROM @cuentasDia AS CD;
 
-            -- Se empieza despues de la ultima cuenta procesada (reanudacion)
+            -- Se empieza despues de la ultima cuenta procesada, buscada por
+            -- su PK (reanudacion). Si no hay ninguna, desde la primera.
             SELECT @posicion = MIN(CD.Posicion)
             FROM @cuentasDia AS CD
             WHERE CD.Posicion > ISNULL((SELECT U.Posicion
                                         FROM @cuentasDia AS U
-                                        WHERE U.NumeroCuenta = @ultimaCuenta),
+                                        WHERE U.IdCuenta = @idUltimaCuenta),
                                        0);
 
             WHILE (@posicion IS NOT NULL AND @flagDetener = @false)
             BEGIN
-                SELECT @numeroCuenta = CD.NumeroCuenta
+                SELECT
+                    @numeroCuenta = CD.NumeroCuenta,
+                    @idCuenta     = CD.IdCuenta
                 FROM @cuentasDia AS CD
                 WHERE CD.Posicion = @posicion;
 
@@ -382,9 +419,13 @@ BEGIN TRY
                           AND MX.CodigoResultado <> 0;
                     END;
 
+                    -- Ultima llave procesada: la PK de la cuenta. Una cuenta
+                    -- que no existe no tiene PK y no mueve la marca (si se
+                    -- vuelve a pasar por ella, el SP ya no encuentra nada).
                     UPDATE dbo.ControlSimulacion
-                    SET UltimaCuentaProcesada = @numeroCuenta
-                    WHERE FechaOperacion = @fecha;
+                    SET IdUltimaCuentaProcesada = @idCuenta
+                    WHERE FechaOperacion = @fecha
+                      AND @idCuenta IS NOT NULL;
 
                     -- Prueba de reanudacion: detenerse a proposito
                     IF (@fecha = @pruebaFechaDetener

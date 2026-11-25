@@ -26,8 +26,7 @@ BEGIN
     SET NOCOUNT ON;
 
     -- Constantes
-    DECLARE @true  BIT = 1;
-    DECLARE @false BIT = 0;
+    DECLARE @true BIT = 1;
 
     -- Variables
     DECLARE @fechaInicioXml DATE;
@@ -106,7 +105,7 @@ BEGIN
                 AS CantMovimientosProcesados,
             CS.CantMovimientosAplicados,
             CS.CantMovimientosRechazados,
-            CS.UltimaCuentaProcesada,
+            C.NumeroCuenta AS UltimaCuentaProcesada,
             CS.CantCierres,
             CS.CantIntentos,
             CS.FlagTerminada,
@@ -114,6 +113,8 @@ BEGIN
             CS.FechaHoraInicio,
             CS.FechaHoraFin
         FROM dbo.ControlSimulacion AS CS
+        LEFT OUTER JOIN dbo.Cuenta AS C
+            ON C.Id = CS.IdUltimaCuentaProcesada
         ORDER BY CS.FechaOperacion DESC;
     END TRY
     BEGIN CATCH

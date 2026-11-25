@@ -452,7 +452,7 @@ WHERE InteresEsperado <> InteresAplicado
 -- 8. Errores
 --------------------------------------------------------------------------
 INSERT INTO @R (Rubro, Dato, Obtenido, Esperado)
-SELECT '8 Errores', N'Filas en ErrorBD (1 si se corrio Pruebas_AltasDia.sql)', COUNT(*), NULL
+SELECT '8 Errores', N'Filas en ErrorBD', COUNT(*), NULL
 FROM dbo.ErrorBD;
 
 --------------------------------------------------------------------------

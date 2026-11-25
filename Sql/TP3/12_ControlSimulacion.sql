@@ -12,7 +12,7 @@
    dbo.ControlSimulacion: una fila por fecha de operacion, con hasta donde se
    llego en esa fecha:
      FlagAltasProcesadas        altas del dia ya aplicadas
-     UltimaCuentaProcesada      numero de la ultima cuenta que proceso
+     IdUltimaCuentaProcesada    Id (PK) de la ultima cuenta que proceso
                                 sp_ProcesarCuentaDia ese dia (NULL =
                                 ninguna todavia). Al reanudar se sigue con
                                 la cuenta que va despues en la lista del dia.
@@ -63,7 +63,7 @@ BEGIN
             CONSTRAINT DF_ControlSimulacion_Aplicados DEFAULT (0),
         CantMovimientosRechazados INT          NOT NULL
             CONSTRAINT DF_ControlSimulacion_Rechazados DEFAULT (0),
-        UltimaCuentaProcesada     VARCHAR(16)  NULL,
+        IdUltimaCuentaProcesada   INT          NULL,
         CantCierres               INT          NOT NULL
             CONSTRAINT DF_ControlSimulacion_Cierres DEFAULT (0),
         CantIntentos              INT          NOT NULL
@@ -78,13 +78,16 @@ BEGIN
         CONSTRAINT UQ_ControlSimulacion_Fecha UNIQUE (FechaOperacion),
         CONSTRAINT FK_ControlSimulacion_Corrida
             FOREIGN KEY (IdCorridaSimulacion)
-            REFERENCES dbo.CorridaSimulacion (Id)
+            REFERENCES dbo.CorridaSimulacion (Id),
+        CONSTRAINT FK_ControlSimulacion_Cuenta
+            FOREIGN KEY (IdUltimaCuentaProcesada)
+            REFERENCES dbo.Cuenta (Id)
     );
 END;
 GO
 
 -- Cambio a la simulacion por cuenta: las columnas de antes se quitan y se
--- agrega UltimaCuentaProcesada (solo si la tabla ya existia)
+-- agrega IdUltimaCuentaProcesada (solo si la tabla ya existia)
 IF COL_LENGTH('dbo.ControlSimulacion', 'UltimoMovimientoProcesado') IS NOT NULL
 BEGIN
     ALTER TABLE dbo.ControlSimulacion
@@ -101,10 +104,19 @@ BEGIN
         DROP COLUMN UltimaCuentaCerrada;
 END;
 
-IF COL_LENGTH('dbo.ControlSimulacion', 'UltimaCuentaProcesada') IS NULL
+-- La reanudacion guardaba el numero de cuenta; ahora guarda la PK (Id)
+IF COL_LENGTH('dbo.ControlSimulacion', 'UltimaCuentaProcesada') IS NOT NULL
 BEGIN
     ALTER TABLE dbo.ControlSimulacion
-        ADD UltimaCuentaProcesada VARCHAR(16) NULL;
+        DROP COLUMN UltimaCuentaProcesada;
+END;
+
+IF COL_LENGTH('dbo.ControlSimulacion', 'IdUltimaCuentaProcesada') IS NULL
+BEGIN
+    ALTER TABLE dbo.ControlSimulacion
+        ADD IdUltimaCuentaProcesada INT NULL
+            CONSTRAINT FK_ControlSimulacion_Cuenta
+            FOREIGN KEY REFERENCES dbo.Cuenta (Id);
 END;
 GO
 
